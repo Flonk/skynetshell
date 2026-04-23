@@ -1,10 +1,12 @@
-pragma Singleton
-import QtQuick
+    pragma Singleton
+    import QtQuick
 
-QtObject {
-    readonly property int barSize: 50
+    QtObject {
+        // Bar Settings
+        readonly property int barSize: 50
 
-    readonly property color app100: "#0b0e14"
+        // Colors
+        readonly property color app100: "#0b0e14"
     readonly property color app150: "#131721"
     readonly property color app200: "#202229"
     readonly property color app600: "#e6e1cf"
@@ -16,7 +18,8 @@ QtObject {
     readonly property color success600: "#aad94c"
     readonly property color wm800: "#ff9624"
 
-    readonly property int fontSizeBig: 10
+        // Font Sizes
+        readonly property int fontSizeBig: 10
     readonly property int fontSizeBigger: 12
     readonly property int fontSizeHuge: 14
     readonly property int fontSizeHumongous: 20
@@ -24,11 +27,15 @@ QtObject {
     readonly property int fontSizeSmall: 8
     readonly property int fontSizeTiny: 7
 
-    readonly property string fontFamilyMono: "DejaVuSansM Nerd Font"
+        // Font Families
+        readonly property string fontFamilyMono: "DejaVuSansM Nerd Font"
     readonly property string fontFamilyMonoNf: "DejaVuSansM Nerd Font"
     readonly property string fontFamilyUi: "DejaVuSansM Nerd Font"
     readonly property string fontFamilyUiNf: "DejaVuSansM Nerd Font"
 
-    readonly property url logoAndampAmpBlue: Qt.resolvedUrl("assets/logos/andamp-amp-blue.png")
-    readonly property url logoTileGrey: Qt.resolvedUrl("assets/logos/tile-grey.png")
-}
+// Asset URLs
+readonly property url logoAndampAmpBlue: Qt.resolvedUrl("assets/logos/andamp-amp-blue.png")
+        readonly property url logoTileGrey: Qt.resolvedUrl("assets/logos/tile-grey.png")
+
+    }
+

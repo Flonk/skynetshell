@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
+qs_init_env
+qs_prepare_config_dir
+qs_init_git_repo
+qs_assert_shell
+
+if [[ "${1-}" == "--sync-only" ]]; then
+  qs_sync_back
+  exit 0
+fi
+
+trap qs_cleanup EXIT INT TERM
+
+if [[ "${1-}" == "--no-watch" ]]; then
+  shift || true
+  exec "$QS_BIN" --path "$CONFIG_DIR" "$@"
+fi
+
+qs_start "$@"
+
+if [[ "${QS_DEV_SKIP_WATCH:-0}" == "1" ]]; then
+  wait "$(cat "$PIDFILE")"
+  exit 0
+fi
+
+export CONFIG_DIR REPO_DIR QS_BIN PIDFILE RUNDIR QS_DEV_REPO_ROOT
+watchexec \
+  -r \
+  -w "$CONFIG_DIR" \
+  --ignore '**/.git/*' \
+  --ignore '**/*.swp' \
+  --ignore '**/*~' \
+  -e qml,js,ts,css,json,yaml,yml \
+  -- "$SCRIPT_DIR/quickshell-dev-reload"
