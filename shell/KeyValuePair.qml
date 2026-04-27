@@ -14,8 +14,8 @@ Item {
     property int valuePointSize: Theme.fontSizeBig
     property int singleLineSpacing: 6
     property bool valueBold: true
-    property string fontFamily: Theme.fontFamilyUiNf
-    property string valueFontFamily: Theme.fontFamilyUiNf
+    property string fontFamily: Theme.fontFamily
+    property string valueFontFamily: Theme.fontFamily
     property int labelLeftPadding: 0
     property int horizontalPadding: 7
     clip: true

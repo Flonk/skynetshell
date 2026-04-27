@@ -19,12 +19,16 @@ Item {
     
     property bool hovered: false
     property real marqueeSpeed: 30 // pixels per second
-    // Delay before the marquee starts (ms)
     property int marqueeDelay: 500
-    // Gap between repeated text in repeat mode (pixels)
     property int repeatGap: 13
+
+    function currentOverflow() {
+        return Math.max(0, textItem.implicitWidth - root.width);
+    }
     
+    implicitWidth: textItem.implicitWidth
     implicitHeight: textItem.implicitHeight
+
     clip: true
     
     Text {
@@ -32,7 +36,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         
         x: {
-            var overflow = Math.max(0, textItem.implicitWidth - root.width);
+            var overflow = root.currentOverflow();
 
             // No overflow: honor alignment visually, no marquee
             if (overflow === 0) {
@@ -69,7 +73,7 @@ Item {
     Text {
         id: textItem2
         anchors.verticalCenter: parent.verticalCenter
-        visible: root.marqueeBehavior === "repeat" && root.hovered && textItem.implicitWidth > root.width
+        visible: root.marqueeBehavior === "repeat" && root.hovered && root.currentOverflow() > 0
         
         text: textItem.text
         font: textItem.font
@@ -82,7 +86,7 @@ Item {
     QtObject {
         id: marqueeAnimation
         property real offset: 0
-        property real maxOffset: Math.max(0, textItem.implicitWidth - root.width)
+        property real maxOffset: root.currentOverflow()
         property real speed: root.marqueeSpeed // px per second
         
         property var animation: root.marqueeBehavior === "repeat" ? repeatAnimation : pingpongAnimation
@@ -121,7 +125,7 @@ Item {
         
         // Repeat/billboard animation (continuous scrolling)
         property var repeatAnimation: NumberAnimation {
-            running: root.hovered && textItem.implicitWidth > root.width && root.marqueeBehavior === "repeat"
+            running: root.hovered && marqueeAnimation.maxOffset > 0 && root.marqueeBehavior === "repeat"
             loops: Animation.Infinite
             target: marqueeAnimation
             property: "offset"
@@ -133,7 +137,7 @@ Item {
     }
     
     onHoveredChanged: {
-        var overflow = Math.max(0, textItem.implicitWidth - root.width);
+        var overflow = root.currentOverflow();
 
         if (hovered && overflow > 0) {
             if (root.marqueeBehavior === "pingpong") {

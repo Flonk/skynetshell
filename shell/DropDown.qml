@@ -68,7 +68,7 @@ Item {
             anchors.centerIn: parent
             text: root.icon
             font.pointSize: 9 * root.iconScale
-            font.family: Theme.fontFamilyUiNf
+            font.family: Theme.fontFamily
             color: root.disabled ? Theme.error600 : Theme.app100
             opacity: 0.95
             rotation: root.iconRotation

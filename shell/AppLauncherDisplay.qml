@@ -1,94 +1,36 @@
-// AppLauncherDisplay.qml - Single square button with grimace emoji that launches vicinae
+// AppLauncherDisplay.qml - SKYNET logo button that launches vicinae
 import QtQuick
 import Quickshell
 
-Rectangle {
+Item {
     id: root
-    
-    width: Theme.barSize
-    height: Theme.barSize
-    color: "transparent"
-    clip: true  // Clip at the rectangle level too
-    property real hoverScale: 1.0
-    property var iconOptions: [
-        {
-            type: "image",
-            value: Theme.logoAndampAmpBlue,
-            zoom: 0.6
-        },
-        {
-            type: "text",
-            value: "🥸",
-            zoom: 1.25
-        }        
-    ]
-    property int iconIndex: 0
-    readonly property var currentIcon: iconOptions.length > 0 ? iconOptions[iconIndex % iconOptions.length] : null
 
-    function cycleIcon() {
-        if (!iconOptions.length) {
-            return;
-        }
-        iconIndex = (iconIndex + 1) % iconOptions.length;
-    }
-    
-    // Clipping container for the oversized emoji
-    Item {
-        anchors.fill: parent
-        clip: true  // Force clipping at container level
-        scale: root.hoverScale
-        
-        Behavior on scale {
-            NumberAnimation { duration: 150; easing.type: Easing.InOutQuad }
-        }
-        
-        // Render either emoji text or image source based on current icon
-        Text {
-            anchors.centerIn: parent
-            text: currentIcon && currentIcon.type === "text" ? currentIcon.value : ""
-            visible: currentIcon && currentIcon.type === "text"
-            font.pointSize: Theme.barSize * (currentIcon && currentIcon.zoom ? currentIcon.zoom : 1.0)
-            font.family: Theme.fontFamilyUi
-            color: Theme.app800
-            clip: true
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
+    property bool hovered: skynetMouse.containsMouse
 
-        Image {
-            anchors.centerIn: parent
-            width: Theme.barSize * (currentIcon && currentIcon.zoom ? currentIcon.zoom : 0.85)
-            height: Theme.barSize * (currentIcon && currentIcon.zoom ? currentIcon.zoom : 0.85)
-            source: currentIcon && currentIcon.type === "image" ? currentIcon.value : ""
-            visible: currentIcon && currentIcon.type === "image"
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            antialiasing: true
-        }
+    width: skynetText.implicitWidth - 20
+    height: 20
+    clip: true
+
+    Text {
+        id: skynetText
+        anchors.centerIn: parent
+        anchors.verticalCenterOffset: 2
+        text: "SKYNET"
+        font.family: "Hypik"
+        font.pointSize: 26
+        color: skynetMouse.containsMouse
+            ? Qt.rgba(Theme.app800.r * 0.8 + Theme.wm800.r * 0.2, Theme.app800.g * 0.8 + Theme.wm800.g * 0.2, Theme.app800.b * 0.8 + Theme.wm800.b * 0.2, 1.0)
+            : Theme.app800
+        scale: skynetMouse.containsMouse ? 1.15 : 1.0
+        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
-    
-    // Click handler to launch vicinae
+
     MouseArea {
+        id: skynetMouse
         anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor  // Show pointer cursor on hover
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onClicked: (mouse) => {
-            if (mouse.button === Qt.RightButton) {
-                root.cycleIcon();
-                return;
-            }
-            if (mouse.button === Qt.LeftButton) {
-                Quickshell.execDetached(["vicinae", "open"]);
-            }
-        }
-        
-        // Visual feedback on hover
         hoverEnabled: true
-        onEntered: {
-            root.hoverScale = 1.1;
-        }
-        onExited: {
-            root.hoverScale = 1.0;
-        }
+        cursorShape: Qt.PointingHandCursor
+        onClicked: Quickshell.execDetached(["vicinae", "open"])
     }
 }

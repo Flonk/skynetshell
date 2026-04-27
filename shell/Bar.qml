@@ -16,6 +16,13 @@ Scope {
         appController: screenAppController
         Component.onCompleted: console.log("BarWindow completed on screen:", screen ? screen.name : "<none>")
       }
+
+      /*
+      VisualizerWindow {
+        screenInfo: modelData
+      }
+      */      
+  
     }
   }
 }

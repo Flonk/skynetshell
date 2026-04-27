@@ -22,6 +22,8 @@ Item {
     property color backgroundColor: "#000000"
     property url tileSource: ""
     property real tileOpacity: 1.0
+    readonly property url effectiveTileSource: root.tileSource != "" ? root.tileSource : ""
+    readonly property real effectiveTileOpacity: root.tileSource != "" ? root.tileOpacity : (root.glassEffect ? 0.8 : root.tileOpacity)
     property bool glassEffect: false
     property color topBorderColor: Theme.app200
     property int topBorderHeight: 1
@@ -49,13 +51,19 @@ Item {
         radius: root.radius
         layer.enabled: root.radius > 0
 
+        Rectangle {
+            anchors.fill: parent
+            color: root.backgroundColor.a < 1.0 ? "#000000" : root.backgroundColor
+            visible: root.glassEffect
+        }
+
         // Tiled background overlay
         Image {
             anchors.fill: parent
-            source: root.tileSource
+            source: root.effectiveTileSource
             fillMode: Image.Tile
-            opacity: root.tileOpacity
-            visible: root.tileSource != ""
+            opacity: root.effectiveTileOpacity
+            visible: root.effectiveTileSource != ""
         }
         
         Rectangle {
@@ -92,10 +100,11 @@ Item {
             radius: root.radius
             visible: root.glassEffect
             gradient: Gradient {
-                GradientStop { position: 0; color: Qt.rgba(1, 1, 1, 0.2) }
-                GradientStop { position: 0.3; color: "transparent" }
-                GradientStop { position: 0.8; color: "transparent" }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.3) }
+                GradientStop { position: 0; color: Qt.rgba(1, 1, 1, 0.5) }
+                GradientStop { position: 0.25; color: Qt.rgba(1, 1, 1, 0.1) }
+                GradientStop { position: 0.5; color: "transparent" }
+                GradientStop { position: 0.75; color: Qt.rgba(0, 0, 0, 0.2) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.6) }
             }
         }
     }
