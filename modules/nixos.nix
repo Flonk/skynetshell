@@ -68,6 +68,24 @@ in
       };
     };
 
+    font = {
+      name = mkOption {
+        type = types.str;
+        default = "monospace";
+        description = "Font name for the console greeter (rendered via kmscon)";
+      };
+      size = mkOption {
+        type = types.int;
+        default = 18;
+        description = "Font size in points for the console greeter";
+      };
+      package = mkOption {
+        type = types.nullOr types.package;
+        default = null;
+        description = "Font package to install (e.g. pkgs.nerd-fonts.dejavu-sans-mono)";
+      };
+    };
+
     theme = mkOption {
       type = types.nullOr (types.submodule {
         options = {
@@ -91,11 +109,15 @@ in
   };
 
   config = mkIf cfg.enable {
-    # Console font with good Unicode coverage for box-drawing, block
-    # elements, and other glyphs used by the bubbletea TUI greeter.
-    console = {
-      packages = [ pkgs.terminus_font ];
-      font = "ter-v24b";
+    # kmscon replaces the kernel VT with a userspace console that
+    # renders TrueType fonts on the framebuffer, giving the greeter
+    # full Unicode and Nerd Font glyph support.
+    services.kmscon = {
+      enable = true;
+      fonts = [
+        { name = cfg.font.name; package = cfg.font.package; }
+      ];
+      extraConfig = "font-size=${toString cfg.font.size}";
     };
 
     services.greetd = {
