@@ -6,7 +6,7 @@ Item {
     required property var context
 
     // Set to a shader name (e.g. "002_blue") or "random" to pick one each lock
-    property string shader: "random"
+    property string shader: context.shader
 
     readonly property var _allShaders: [
         "002_blue", "20221105_inercia_intended_one", "2d_clouds", "3d_fire_340",

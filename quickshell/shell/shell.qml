@@ -40,7 +40,7 @@ ShellRoot {
     }
 
     function lockScreen(shader) {
-        lockSurface.shader = (shader && shader !== "") ? shader : "random";
+        lockContext.shader = (shader && shader !== "") ? shader : "random";
         lockContext.elapsedTime = 0;
         lockContext.lastKeyTime = -1000.0;
         lockContext.lastFailedUnlockTime = -1000.0;

@@ -6,6 +6,7 @@ Scope {
     id: root
     signal unlocked()
 
+    property string shader: "random"
     property string currentText: ""
     property bool unlockInProgress: false
     property bool showFailure: false
