@@ -91,6 +91,13 @@ in
   };
 
   config = mkIf cfg.enable {
+    # Console font with good Unicode coverage for box-drawing, block
+    # elements, and other glyphs used by the bubbletea TUI greeter.
+    console = {
+      packages = [ pkgs.terminus_font ];
+      font = "ter-v24b";
+    };
+
     services.greetd = {
       enable = true;
       settings = {
