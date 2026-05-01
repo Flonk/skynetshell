@@ -38,17 +38,6 @@ let
     '';
   }));
 
-  # Minimal Hyprland config that launches skynetgreet and exits when it does
-  hyprlandGreeterConfig = pkgs.writeText "hyprland-greeter.conf" ''
-    monitor = , preferred, auto, 1
-    misc {
-      disable_hyprland_logo = true
-      disable_splash_rendering = true
-      force_default_wallpaper = 0
-    }
-    exec-once = ${greeterPkg}/bin/skynetgreet; hyprctl dispatch exit
-  '';
-
 in
 {
   options.programs.skynetshell.greeter = {
@@ -107,7 +96,7 @@ in
       settings = {
         terminal.vt = 1;
         default_session = {
-          command = "${pkgs.hyprland}/bin/Hyprland -c ${hyprlandGreeterConfig}";
+          command = "${greeterPkg}/bin/skynetgreet";
           user = "greeter";
         };
       };
@@ -121,7 +110,7 @@ in
     };
     users.groups.greeter = { };
 
-    environment.systemPackages = [ greeterPkg pkgs.hyprland ];
+    environment.systemPackages = [ greeterPkg ];
 
     security.polkit.enable = true;
     security.polkit.extraConfig = ''
