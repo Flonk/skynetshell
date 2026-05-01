@@ -9,6 +9,7 @@ AppController 1.0 AppController.qml
 WorkspacesWidget 1.0 WorkspacesWidget.qml
 Bar 1.0 Bar.qml
 VisualizerWindow 1.0 VisualizerWindow.qml
+BarContent 1.0 BarContent.qml
 BarWindow 1.0 BarWindow.qml
 MediaControlDisplay 1.0 MediaControlDisplay.qml
 WorkspacesDisplay 1.0 WorkspacesDisplay.qml
@@ -19,3 +20,7 @@ DropDown 1.0 DropDown.qml
 WifiDisplay 1.0 WifiDisplay.qml
 Shortcuts 1.0 Shortcuts.qml
 MarqueeText 1.0 MarqueeText.qml
+singleton LockWidget 1.0 LockWidget.qml
+LockContext 1.0 LockContext.qml
+LockShaderPass 1.0 LockShaderPass.qml
+LockSurface 1.0 LockSurface.qml

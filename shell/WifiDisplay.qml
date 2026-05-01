@@ -25,35 +25,64 @@ Row {
         return mantissa.padStart(3, " ") + units[unitIndex];
     }
 
-    Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: WifiWidget.isConnected ? "\uf1eb" : "\uf127"
-        font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
-        color: root.wifiWarningActive ? root.warningColor : root.wifiIconColor
+    function openWifiCommander() {
+        Quickshell.execDetached(["xdg-open", "vicinae://launch/@dagimg-dot/store.vicinae.wifi-commander/scan-wifi"]);
     }
-    Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: "\uf062"
-        font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
-        color: root.arrowIconColor
+
+    Item {
+        width: wifiIcon.implicitWidth; height: 20
+        Text {
+            id: wifiIcon
+            anchors.verticalCenter: parent.verticalCenter
+            text: WifiWidget.isConnected ? "\uf1eb" : "\uf127"
+            font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+            color: root.wifiWarningActive ? root.warningColor : root.wifiIconColor
+        }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openWifiCommander() }
     }
-    Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: root.formatRate(WifiWidget.uploadRate)
-        font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
-        color: root.speedColor
+    Item {
+        width: upArrow.implicitWidth; height: 20
+        Text {
+            id: upArrow
+            anchors.verticalCenter: parent.verticalCenter
+            text: "\uf062"
+            font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+            color: root.arrowIconColor
+        }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openWifiCommander() }
     }
-    Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: "\uf063"
-        font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
-        color: root.arrowIconColor
+    Item {
+        width: upSpeed.implicitWidth; height: 20
+        Text {
+            id: upSpeed
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.formatRate(WifiWidget.uploadRate)
+            font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+            color: root.speedColor
+        }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openWifiCommander() }
     }
-    Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: root.formatRate(WifiWidget.downloadRate)
-        font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
-        color: root.speedColor
+    Item {
+        width: downArrow.implicitWidth; height: 20
+        Text {
+            id: downArrow
+            anchors.verticalCenter: parent.verticalCenter
+            text: "\uf063"
+            font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+            color: root.arrowIconColor
+        }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openWifiCommander() }
+    }
+    Item {
+        width: downSpeed.implicitWidth; height: 20
+        Text {
+            id: downSpeed
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.formatRate(WifiWidget.downloadRate)
+            font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+            color: root.speedColor
+        }
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openWifiCommander() }
     }
     Item {
         width: localIpText.implicitWidth; height: 20

@@ -62,6 +62,7 @@
             packages = with pkgs; [
               just
               quickshell
+              qt6.qtshadertools
               watchexec
             ];
           };

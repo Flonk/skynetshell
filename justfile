@@ -9,3 +9,11 @@ dev:
 
 fmt:
     nix fmt
+
+# Build all lockscreen shaders (.glsl → .frag.qsb)
+shaders:
+    ./lockscreen/convert-shaders.sh
+
+# Clean compiled shaders
+shaders-clean:
+    rm -rf ./shell/shaders/
