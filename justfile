@@ -21,3 +21,7 @@ shaders-clean:
 # Run greeter in test mode
 greet-test:
     cd greeter && go run ./cmd/skynetgreet --test --data-dir .
+
+# Preview GRUB theme in QEMU
+grub-preview resolution="1920x1080":
+    cd grub && bash preview.sh {{resolution}}
