@@ -2,18 +2,22 @@ default:
     @just --list
 
 run:
-    quickshell --path ./shell
+    quickshell --path ./quickshell/shell
 
 dev:
-    watchexec -r -w ./shell -e qml,js,ts,css,json,yaml,yml -- quickshell --path ./shell
+    watchexec -r -w ./quickshell/shell -e qml,js,ts,css,json,yaml,yml -- quickshell --path ./quickshell/shell
 
 fmt:
     nix fmt
 
 # Build all lockscreen shaders (.glsl → .frag.qsb)
 shaders:
-    ./lockscreen/convert-shaders.sh
+    ./quickshell/lockscreen/convert-shaders.sh
 
 # Clean compiled shaders
 shaders-clean:
-    rm -rf ./shell/shaders/
+    rm -rf ./quickshell/shell/shaders/
+
+# Run greeter in test mode
+greet-test:
+    cd greeter && go run ./cmd/skynetgreet --test --data-dir .
