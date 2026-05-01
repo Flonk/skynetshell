@@ -135,6 +135,7 @@ in
       TTYVTDisallocate = true;
       # Suppress kernel messages (e.g. ucsi_acpi) from printing over the greeter TUI
       ExecStartPre = "${pkgs.util-linux}/bin/dmesg --console-off";
+      ExecStopPost = "${pkgs.util-linux}/bin/dmesg --console-on";
     };
   };
 }
