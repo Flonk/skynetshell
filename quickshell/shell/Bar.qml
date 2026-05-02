@@ -17,6 +17,10 @@ Scope {
         Component.onCompleted: console.log("BarWindow completed on screen:", screen ? screen.name : "<none>")
       }
 
+      How2SkynetOverlay {
+        screenInfo: modelData
+      }
+
       /*
       VisualizerWindow {
         screenInfo: modelData

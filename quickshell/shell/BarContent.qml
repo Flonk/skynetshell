@@ -300,18 +300,19 @@ Item {
     Section {
       id: wifiSection
       visible: bar.showWifi && !bar.lockscreen
-      width: wifiDisplay.implicitWidth + 8
+      width: wifiDisplay.implicitWidth + 26
       topPadding: 0; bottomPadding: 0
       backgroundColor: Qt.rgba(Theme.app200.r, Theme.app200.g, Theme.app200.b, 0.2)
       showTopBorder: false
       glassEffect: false
 
       Item {
-        width: wifiDisplay.implicitWidth; height: 20
+        width: wifiDisplay.implicitWidth + 18; height: 20
 
         WifiDisplay {
           id: wifiDisplay
-          anchors.centerIn: parent; anchors.verticalCenterOffset: bar.textVerticalOffset
+          anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: bar.textVerticalOffset
+          anchors.left: parent.left; anchors.leftMargin: 12
           wifiIconColor: bar.wifiIconColor
           arrowIconColor: bar.iconColor
           speedColor: bar.wifiSpeedColor
@@ -431,9 +432,9 @@ Item {
 
     // CLOCK
     Section {
-      width: clockText.implicitWidth + 14
+      width: clockText.implicitWidth + 34
       topPadding: 0; bottomPadding: 0
-      leftPadding: 8; rightPadding: 6
+      leftPadding: 18; rightPadding: 16
       backgroundColor: Qt.rgba(Theme.app200.r, Theme.app200.g, Theme.app200.b, 0.2)
       showTopBorder: false
       glassEffect: false
@@ -465,6 +466,39 @@ Item {
             const iso = new Date().toISOString();
             Quickshell.execDetached(["sh", "-c", "echo -n '" + iso + "' | wl-copy && notify-send '\uD83D\uDD52 Timestamp copied!' '" + iso + " was copied to the clipboard'"]);
           }
+        }
+      }
+    }
+
+    // HOW2SKYNET
+    Section {
+      id: h2sSection
+      visible: !bar.lockscreen
+      width: h2sText.implicitWidth + 24
+      topPadding: 0; bottomPadding: 0
+      backgroundColor: h2sMouse.containsMouse || How2SkynetWidget.visible ? Theme.wm800 : Theme.app150
+      showTopBorder: false
+      glassEffect: false
+      clip: true
+
+      Item {
+        width: parent.width; height: 20
+
+        Text {
+          id: h2sText
+          anchors.centerIn: parent; anchors.verticalCenterOffset: bar.textVerticalOffset
+          text: "HELP"
+          font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+          color: h2sMouse.containsMouse || How2SkynetWidget.visible ? Theme.app100 : bar.textColor
+        }
+
+        MouseArea {
+          id: h2sMouse
+          enabled: bar.interactive
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: How2SkynetWidget.toggle()
         }
       }
     }

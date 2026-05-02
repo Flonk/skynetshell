@@ -20,6 +20,8 @@ DropDown 1.0 DropDown.qml
 WifiDisplay 1.0 WifiDisplay.qml
 Shortcuts 1.0 Shortcuts.qml
 MarqueeText 1.0 MarqueeText.qml
+singleton How2SkynetWidget 1.0 How2SkynetWidget.qml
+How2SkynetOverlay 1.0 How2SkynetOverlay.qml
 singleton LockWidget 1.0 LockWidget.qml
 LockContext 1.0 LockContext.qml
 LockShaderPass 1.0 LockShaderPass.qml
