@@ -48,7 +48,7 @@
 
             src = ./greeter;
 
-            vendorHash = "sha256-UeCAZ+I2dxh/i5JeszuZ/KzbPB/iT4PEKI/XelLcxyA=";
+            vendorHash = "sha256-W0Hs8tVr1Z5Qx2pbeGiwx8ow3nDDp+K9xFSQPn1Fo/E=";
 
             ldflags = [
               "-X main.Version=${version}"
