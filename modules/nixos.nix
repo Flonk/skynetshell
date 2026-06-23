@@ -56,6 +56,28 @@ let
     foreground ${t.fg_primary}
   '');
 
+  # The terminal + greeter the kiosk compositor launches.
+  greeterClient = "${pkgs.kitty}/bin/kitty --config=${kittyConf} ${greeterPkg}/bin/skynetgreet";
+
+  # Minimal sway kiosk config used when the greeter is pinned to a single
+  # output: disable every output, then enable only the requested one, so the
+  # greeter never spans multiple monitors.
+  swayKioskConf = pkgs.writeText "skynetgreet-sway.conf" ''
+    output * disable
+    output ${cfg.output} enable
+    xwayland disable
+    default_border none
+    default_floating_border none
+    for_window [app_id="kitty"] fullscreen enable, border none
+    exec "${greeterClient}; ${pkgs.sway}/bin/swaymsg exit"
+  '';
+
+  # cage spans all outputs (extend); sway pins to one named output.
+  greeterCommand =
+    if cfg.output == null
+    then "${pkgs.cage}/bin/cage -s -- ${greeterClient}"
+    else "${pkgs.sway}/bin/sway --config ${swayKioskConf}";
+
   # --- GRUB theme derivation ---
   skynetGrubTheme = pkgs.runCommand "skynet-grub-theme"
     {
@@ -155,6 +177,18 @@ in
     greeter = {
       enable = mkEnableOption "skynetgreet greeter for greetd";
 
+      output = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "eDP-1";
+        description = ''
+          Wayland output to pin the greeter to (e.g. "eDP-1"). When null the
+          greeter runs under cage and spans all connected outputs, which on a
+          multi-monitor setup centres it across the seam between displays. When
+          set, the greeter runs under sway on that single output only.
+        '';
+      };
+
       settings = {
         name = mkOption {
           type = types.str;
@@ -203,16 +237,17 @@ in
     })
 
     (mkIf cfg.enable {
-    # The greeter runs inside cage (a minimal kiosk Wayland compositor)
-    # with kitty as the terminal emulator.  This gives full TrueType /
-    # Nerd Font rendering via kitty's GPU-accelerated text pipeline —
-    # something the raw Linux TTY (even with kmscon) cannot match.
+    # The greeter runs inside a minimal kiosk Wayland compositor (cage when
+    # spanning all outputs, sway when pinned to greeter.output) with kitty as
+    # the terminal emulator.  This gives full TrueType / Nerd Font rendering
+    # via kitty's GPU-accelerated text pipeline — something the raw Linux TTY
+    # (even with kmscon) cannot match.
     services.greetd = {
       enable = true;
       settings = {
         terminal.vt = 1;
         default_session = {
-          command = "${pkgs.cage}/bin/cage -s -- ${pkgs.kitty}/bin/kitty --config=${kittyConf} ${greeterPkg}/bin/skynetgreet";
+          command = greeterCommand;
           user = "greeter";
         };
       };
@@ -226,7 +261,8 @@ in
     };
     users.groups.greeter = { };
 
-    environment.systemPackages = [ greeterPkg pkgs.cage pkgs.kitty ];
+    environment.systemPackages = [ greeterPkg pkgs.kitty ]
+      ++ (if cfg.output == null then [ pkgs.cage ] else [ pkgs.sway ]);
 
     # Make the greeter font available system-wide so kitty can find it
     fonts.packages = mkIf (cfg.font.package != null) [ cfg.font.package ];
