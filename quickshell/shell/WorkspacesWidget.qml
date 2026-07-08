@@ -54,8 +54,11 @@ Item {
         }
     }
 
-    // Function to switch to a workspace
+    // Function to switch to a workspace.
+    // This Hyprland uses a Lua dispatch config: the IPC arg is eval'd as
+    // `hl.dispatch(<arg>)`, so a plain "workspace N" string is invalid Lua.
+    // Pass the focus dispatcher object instead.
     function switchToWorkspace(workspaceId) {
-        Hyprland.dispatch(`workspace ${workspaceId}`);
+        Hyprland.dispatch(`hl.dsp.focus({ workspace = ${workspaceId} })`);
     }
 }
