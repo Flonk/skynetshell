@@ -5,31 +5,13 @@ Item {
     id: root
     required property var context
 
-    // Set to a shader name (e.g. "002_blue") or "random" to pick one each lock
-    property string shader: context.shader
-
-    readonly property var _allShaders: [
-        "002_blue", "20221105_inercia_intended_one", "2d_clouds", "3d_fire_340",
-        "8x8_pixel_character", "abacate_with_suggar", "apollonian_with_a_twist_ii",
-        "ashanoha", "auroras", "breathing_rings", "cat_and_boy_12", "chilly_waves_2",
-        "colorful_underwater_bubbles_ii", "crazy_spiral_thing", "dark_transit",
-        "disco_sun_vortex", "discoteq_2", "fragment_plane", "gliding",
-        "global_wind_circulation", "glsl_2d_tutorials", "hexagonal_grid_traversal_3d",
-        "hexagonal_pattern_logic", "inside_the_torus", "isovalues_3",
-        "mandelbrot_distance", "mobius_spiral", "monster", "racing_to_the_future",
-        "raymarched_hexagonal_truchet", "raytraced_transformed_spheres",
-        "renkli_toplar", "segmented_spiral_whirlpool", "shadertober_06b_husky",
-        "sincos_3d", "starship_reentry", "superquadratic_reflections",
-        "synthwave_canyon", "the_universe_within", "ui_noise_halo", "ui_test_5",
-        "voxel_star_field", "wavey_spheres", "weird_truchet", "windows_95",
-    ]
+    // Resolved scene name from the shared context (identical on every monitor)
+    property string shader: context.activeShader
 
     property string _activeShader: ""
 
     function _pickShader() {
-        _activeShader = (shader !== "random")
-            ? shader
-            : _allShaders[Math.floor(Math.random() * _allShaders.length)];
+        _activeShader = shader;
     }
 
     // Shared frame counter
