@@ -40,15 +40,23 @@ Scope {
     property bool showFailure: false
 
     // Envelope timing state (seconds since lock start)
-    // Driven once here (not per-surface) so multi-monitor setups don't advance
-    // the shared clock N times per tick — that made animations run at N× speed.
-    // FrameAnimation ticks vsync-aligned with a measured delta, unlike a 16ms
-    // coarse Timer beating against the refresh rate (visible judder).
-    property bool active: false
+    // Advanced from the clock-owner surface's frameSwapped signal (frameTick):
+    // vsync-locked wall-clock time, driven once — not N times — on N monitors.
+    // Each tick dirties the ShaderEffects, which schedules the next frame,
+    // so the loop is self-sustaining while any surface exists.
     property real elapsedTime: 0
-    FrameAnimation {
-        running: root.active
-        onTriggered: root.elapsedTime += smoothFrameTime
+    property double clockStart: 0
+    property var _clockOwner: null
+
+    function frameTick(owner) {
+        if (_clockOwner === null) _clockOwner = owner;
+        if (_clockOwner !== owner) return;
+        const t = (Date.now() - clockStart) / 1000;
+        // always advance so the repaint chain never stalls
+        elapsedTime = t > elapsedTime ? t : elapsedTime + 0.0005;
+    }
+    function releaseClock(owner) {
+        if (_clockOwner === owner) _clockOwner = null;
     }
     property real lastKeyTime: -1000.0
     property real lastFailedUnlockTime: -1000.0

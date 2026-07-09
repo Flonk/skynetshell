@@ -10,7 +10,6 @@ ShellRoot {
 
     LockContext {
         id: lockContext
-        active: lock.locked
 
         onUnlocked: {
             Qt.callLater(() => { lock.locked = false; });
@@ -44,6 +43,8 @@ ShellRoot {
         lockContext.shader = (shader && shader !== "") ? shader : "yamp";
         lockContext.resolveShader();
         lockContext.elapsedTime = 0;
+        lockContext.clockStart = Date.now();
+        lockContext._clockOwner = null;
         lockContext.lastKeyTime = -1000.0;
         lockContext.lastFailedUnlockTime = -1000.0;
         lockContext.authStartedTime = -1000.0;

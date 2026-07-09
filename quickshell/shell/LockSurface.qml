@@ -14,13 +14,17 @@ Item {
         _activeShader = shader;
     }
 
-    // Per-surface frame counter (elapsedTime is driven once by LockContext so it
-    // doesn't advance N× on N monitors)
+    // Per-surface frame counter; also drives the shared clock in LockContext
+    // (frameTick ignores all but the first surface that ever ticked)
     property int _iFrame: 0
-    FrameAnimation {
-        running: true
-        onTriggered: root._iFrame += 1
+    Connections {
+        target: root.Window.window
+        function onFrameSwapped() {
+            root._iFrame += 1;
+            root.context.frameTick(root);
+        }
     }
+    Component.onDestruction: root.context.releaseClock(root)
 
     // 1x1 dummy texture for unused iChannel slots
     ShaderEffectSource {
