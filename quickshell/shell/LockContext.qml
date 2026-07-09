@@ -40,7 +40,15 @@ Scope {
     property bool showFailure: false
 
     // Envelope timing state (seconds since lock start)
+    // Driven once here (not per-surface) so multi-monitor setups don't advance
+    // the shared clock N times per tick — that made animations run at N× speed.
     property real elapsedTime: 0
+    Timer {
+        interval: 16
+        running: true
+        repeat: true
+        onTriggered: root.elapsedTime += 0.016
+    }
     property real lastKeyTime: -1000.0
     property real lastFailedUnlockTime: -1000.0
     property real authStartedTime: -1000.0

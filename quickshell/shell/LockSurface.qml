@@ -14,16 +14,14 @@ Item {
         _activeShader = shader;
     }
 
-    // Shared frame counter
+    // Per-surface frame counter (elapsedTime is driven once by LockContext so it
+    // doesn't advance N× on N monitors)
     property int _iFrame: 0
     Timer {
         interval: 16
         running: true
         repeat: true
-        onTriggered: {
-            root._iFrame += 1;
-            root.context.elapsedTime += 0.016;
-        }
+        onTriggered: root._iFrame += 1
     }
 
     // 1x1 dummy texture for unused iChannel slots
