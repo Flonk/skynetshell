@@ -102,14 +102,14 @@ float sk_attention_envelope() {
 // out of the P, so the pieces stay separated even mid-spin.
 
 // --- knobs ------------------------------------------------------------------
-const float SPEED      = 0.25;   // global animation speed multiplier
+const float SPEED      = 0.125;  // global animation speed multiplier
 const float T_OFF1     = 5.0;   // off, long (dark grey)
-const float T_ROTATE   = 1.75;   // J/P fast 360 spin
+const float T_ROTATE   = 0.583;  // J/P fast 360 spin (3x faster)
 const float T_OFF2     = 2.0;   // off, short
-const float T_FILL     = 1.1;   // duration of each white fill wipe
-const float T_FILL_LAG = 0.4;  // P wipe starts this long after J wipe
+const float T_FILL     = 0.367;  // duration of each white fill wipe (3x faster)
+const float T_FILL_LAG = 0.133; // P wipe starts this long after J wipe (3x faster)
 const float T_ON       = 1.55;  // fully white hold
-const float T_UNFILL   = 0.8;   // wipes reverse out
+const float T_UNFILL   = 0.267;  // wipes reverse out (3x faster)
 const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
