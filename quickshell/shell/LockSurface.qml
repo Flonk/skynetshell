@@ -110,6 +110,8 @@ Item {
         }
 
         Keys.onPressed: event => {
+            if (event.key === Qt.Key_Backspace && text.length === 0)
+                return;
             root.context.recordKeypress();
         }
 
@@ -127,9 +129,10 @@ Item {
         onClicked: passwordInput.forceActiveFocus()
     }
 
-    // ---- Failure flash overlay ----
+    // ---- Failure flash overlay (for shaders without built-in feedback) ----
     Rectangle {
         anchors.fill: parent
+        visible: shaderLoader.item && !shaderLoader.item.interactive
         color: "#e35532"
         opacity: root.context.showFailure ? 0.35 : 0.0
         Behavior on opacity {

@@ -65,8 +65,8 @@ const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
 // reverses everything
-const float IND_AMP    = 0.45;   // indicator amp scale (screen units)
-const float IND_BUMP   = 0.12;   // per-key amp scale bump
+const float IND_AMP    = 0.2;   // indicator amp scale (screen units)
+const float IND_BUMP   = 0.04;   // per-key amp scale bump
 const float IND_BRIGHT = 0.35;   // per-key brightness bump (toward white)
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
