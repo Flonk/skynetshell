@@ -10,6 +10,7 @@ ShellRoot {
 
     LockContext {
         id: lockContext
+        active: lock.locked
 
         onUnlocked: {
             Qt.callLater(() => { lock.locked = false; });

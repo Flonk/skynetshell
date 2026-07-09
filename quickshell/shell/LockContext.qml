@@ -42,12 +42,13 @@ Scope {
     // Envelope timing state (seconds since lock start)
     // Driven once here (not per-surface) so multi-monitor setups don't advance
     // the shared clock N times per tick — that made animations run at N× speed.
+    // FrameAnimation ticks vsync-aligned with a measured delta, unlike a 16ms
+    // coarse Timer beating against the refresh rate (visible judder).
+    property bool active: false
     property real elapsedTime: 0
-    Timer {
-        interval: 16
-        running: true
-        repeat: true
-        onTriggered: root.elapsedTime += 0.016
+    FrameAnimation {
+        running: root.active
+        onTriggered: root.elapsedTime += smoothFrameTime
     }
     property real lastKeyTime: -1000.0
     property real lastFailedUnlockTime: -1000.0
