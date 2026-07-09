@@ -26,7 +26,7 @@ const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
 const float DISTORT      = 0.06;  // glass refraction strength at the tile rim
 const float DISTORT_BAND = 0.12;  // rim band that refracts
 
-const float DARKEN = 0.15;        // off-amp darkening per subdivision level
+const float DARKEN = 0.25;        // off-amp darkening per subdivision level
 
 const float NOISE_LO    = 0.05;  // background noise brightness range
 const float NOISE_HI    = 0.15;
