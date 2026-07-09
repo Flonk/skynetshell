@@ -9,7 +9,7 @@ Item {
 
     Image { id: tex; source: "../assets/yamp_sdf.png"; visible: false }
     ShaderEffectSource { id: texSrc; sourceItem: tex; hideSource: true }
-    Image { id: noise; source: "../assets/fractalnoise.png"; visible: false }
+    Image { id: noise; source: "../assets/random.png"; visible: false }
     ShaderEffectSource { id: noiseSrc; sourceItem: noise; hideSource: true }
 
     LockShaderPass {

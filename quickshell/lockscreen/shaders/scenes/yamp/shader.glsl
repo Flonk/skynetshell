@@ -5,7 +5,9 @@
 // sdJ/sdP sample a baked SDF texture (gen_sdf.py); the design gap (PAD) of
 // the J is carved out of the P, so the pieces stay separated even mid-spin.
 // Tiles are squircles (SQUIRCLENESS knob); the rim band refracts the content
-// like glass (DISTORT knobs).
+// like glass (DISTORT knobs). The background noise (iChannel1) counter-scrolls
+// and gets sucked toward each tile's rim, piling up into a bright event
+// horizon that forms the border (PILE knobs) — no drawn ring.
 
 // --- knobs ------------------------------------------------------------------
 const float SPEED      = 0.8;    // global animation speed multiplier
@@ -23,14 +25,18 @@ const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
 const float SCROLL     = 0.03; // vertical scroll speed
 
 const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
-const float DISTORT      = 0.06;  // glass refraction strength at the tile rim
+const float DISTORT      = 0.12;  // glass refraction strength at the tile rim
 const float DISTORT_BAND = 0.12;  // rim band that refracts
 
 const float DARKEN = 0.25;        // off-amp darkening per subdivision level
 
 const float NOISE_LO    = 0.05;  // background noise brightness range
 const float NOISE_HI    = 0.15;
-const float NOISE_SCALE = 1.0;   // background noise texture frequency
+const float NOISE_SCALE = 3.0;   // background noise texture frequency
+
+const float PILE_BAND = 0.08;    // event-horizon falloff width (tile units)
+const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
+const float PILE_GAIN = 2.5;     // brightness pile-up at the horizon
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -128,15 +134,17 @@ vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
 }
 
-vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq, float depth){
-    // outside the tile squircle only the border can show through the
-    // max(sq.x, ...) clip — skip both glyph SDFs entirely
-    float dring = abs(sq.x + 0.01) - 0.01;
-    if (sq.x * iResolution.y > 1.5) {
-        return mix(col, vec3(0.3), S(dring));
-    }
+vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
+    // event horizon: outside the tile the noise gets sucked toward the rim
+    // and piles up — this is both the background and the tile border
+    float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
+    pull *= pull;
+    float nse = texture(iChannel1, fract(tp + sq.yz * pull * PILE_PULL)).r;
+    vec3 bg = vec3(mix(NOISE_LO, NOISE_HI, nse) * (1. + PILE_GAIN * pull));
+    vec3 col = mix(bg, vec3(0.), S(sq.x));        // inside the horizon: black
 
-    col = mix(col, vec3(0.), S(sq.x));            // background stays outside
+    // outside pixels are done — skip both glyph SDFs entirely
+    if (sq.x * iResolution.y > 1.5) return col;
 
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
     p /= AMP_SCALE;
@@ -166,11 +174,10 @@ vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq, float depth){
     dw = max(sq.x, dw);
     col = mix(col, ampGradient(p), S(dw));
 
-    col = mix(col, vec3(0.3), S(dring));          // grey squircle border
     return col;
 }
 
-vec3 quadTree(vec2 p, vec3 col, float nn, float depth){
+vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p*=2.;
     vec3 sq = sdSquircle(p, 1., SQUIRCLENESS);
 
@@ -181,7 +188,7 @@ vec3 quadTree(vec2 p, vec3 col, float nn, float depth){
 
     // extra-large level: sometimes the whole cell is one huge ampersand
     if(fract(nn*57.31) < BIG_CHANCE){
-        return drawAmp(p*0.5, nn+0.3, col, sq, depth);
+        return drawAmp(p*0.5, nn+0.3, sq, depth, tp);
     }
 
     if(nn<0.5){
@@ -214,12 +221,10 @@ vec3 quadTree(vec2 p, vec3 col, float nn, float depth){
         depth += 1.;
     }
 
-    col = drawAmp(gr, n2+nn, col, sq, depth);
-
-    return col;
+    return drawAmp(gr, n2+nn, sq, depth, tp);
 }
 
-vec3 render(vec2 p, vec3 col){
+vec3 render(vec2 p, vec2 tp){
     p.y-=iTime*SCROLL;
     p*=2.;
     vec2 id = floor(p);
@@ -245,19 +250,15 @@ vec3 render(vec2 p, vec3 col){
         depth += 1.;
     }
 
-    return quadTree(gr, col, n2, depth);
+    return quadTree(gr, n2, depth, tp);
 }
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
 
-    // noise texture background (iChannel1), only visible outside the tiles
-    vec2 tp = vec2(p.x, p.y - iTime*SCROLL) * NOISE_SCALE;
-    float nse = texture(iChannel1, fract(tp)).r;
-    vec3 col = vec3(mix(NOISE_LO, NOISE_HI, nse));
+    // noise coords, counter-scrolling against the grid
+    vec2 tp = vec2(p.x, p.y + iTime*SCROLL) * NOISE_SCALE;
 
-    col = render(p,col);
-
-    fragColor = vec4(col,1.0);
+    fragColor = vec4(render(p, tp), 1.0);
 }
