@@ -52,44 +52,52 @@ float sk_ease_out_back(float t) {
     return 1.0 + c3 * x * x * x + c1 * x * x;
 }
 
-float sk_keypulse_envelope() {
-    float age = iTime - u_last_key_time;
+// _at variants evaluate the envelope at an arbitrary time t (<= iTime;
+// there is no future to sample) — for phase-shifted copies of an envelope
+
+float sk_keypulse_envelope_at(float t) {
+    float age = t - u_last_key_time;
     float ramp = clamp(age / 0.03, 0.0, 1.0);
     float p = mix(u_key_bases.x, 1.0, ramp);
     float decay = clamp((age - 0.03) / 0.08, 0.0, 1.0);
     return p * (1.0 - decay * decay);
 }
+float sk_keypulse_envelope() { return sk_keypulse_envelope_at(iTime); }
 
-float sk_key_envelope() {
-    float age = iTime - u_last_key_time;
+float sk_key_envelope_at(float t) {
+    float age = t - u_last_key_time;
     float ramp = clamp(age / 0.06, 0.0, 1.0);
     float p = mix(u_key_bases.y, 1.0, ramp);
     float decay = clamp((age - 1.06) / 2.0, 0.0, 1.0);
     return p * (1.0 - sk_ease_out_back(pow(decay, 0.65)));
 }
+float sk_key_envelope() { return sk_key_envelope_at(iTime); }
 
-float sk_fail_envelope() {
-    float age = iTime - u_last_failed_unlock_time;
+float sk_fail_envelope_at(float t) {
+    float age = t - u_last_failed_unlock_time;
     float p = clamp(age / 0.03, 0.0, 1.0);
     float decay = clamp((age - 0.27) / 2.0, 0.0, 1.0);
     return p * pow(1.0 - decay, 3.0);
 }
+float sk_fail_envelope() { return sk_fail_envelope_at(iTime); }
 
-float sk_load_envelope() {
+float sk_load_envelope_at(float t) {
     float isLoading = step(-999.0, u_auth_started_time);
-    float authAge = iTime - u_auth_started_time;
-    float endedAge = iTime - u_last_failed_unlock_time;
+    float authAge = t - u_auth_started_time;
+    float endedAge = t - u_last_failed_unlock_time;
     float loading = isLoading * clamp((authAge - 0.1) / 0.03, 0.0, 1.0);
     float unloading = (1.0 - isLoading) * clamp(1.0 - endedAge / 0.03, 0.0, 1.0);
     return loading + unloading;
 }
+float sk_load_envelope() { return sk_load_envelope_at(iTime); }
 
-float sk_attention_envelope() {
-    float kf = sk_key_envelope() + sk_fail_envelope();
-    float load = sk_load_envelope();
+float sk_attention_envelope_at(float t) {
+    float kf = sk_key_envelope_at(t) + sk_fail_envelope_at(t);
+    float load = sk_load_envelope_at(t);
     kf = max(kf, load - 1.0);
     return min(kf + load, 1.0);
 }
+float sk_attention_envelope() { return sk_attention_envelope_at(iTime); }
 
 // ---------------------------------------------------------------------------
 // Shader body follows (injected by convert-shaders.sh)
@@ -147,7 +155,7 @@ const float SCROLL_MAX = 0.09;
 // flips to the 3d planetscape and back every MODE_PERIOD. The global zoom
 // flips on the same period, offset by half — so the four quarters run
 // 2d-in, 2d-out, 3d-out, 3d-in.
-const float MODE_PERIOD = 40.;   // seconds per mode
+const float MODE_PERIOD = 60. * 8.;   // seconds per mode
 const float TRANS_DUR   = 1.2;   // flip transition duration
 const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
 const float ZOOM_OUT    = 0.30;  // global zoom-out amount
@@ -161,9 +169,10 @@ const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
 // reverses everything
-const float IND_AMP    = 0.2;   // indicator amp scale (screen units)
+const float IND_AMP    = 0.1;   // indicator amp scale (screen units)
 const float IND_BUMP   = 0.04;   // per-key amp scale bump
 const float IND_BRIGHT = 0.35;   // per-key brightness bump (toward white)
+const float IND_LAG    = 0.08;   // circle leads the amp by this, in and out
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -427,17 +436,22 @@ vec3 render(vec2 p, vec2 tp){
 
 // --- key indicator -----------------------------------------------------------
 vec3 keyIndicator(vec3 col, vec2 q){
-    float pres = sk_attention_envelope();
-    if(pres < 0.001) return col;
+    // the circle leads the amp by IND_LAG both ways: max of the live and the
+    // delayed envelope rises first and falls last, min does the opposite
+    float e0 = sk_attention_envelope();
+    float e1 = sk_attention_envelope_at(iTime - IND_LAG);
+    float cpres = max(e0, e1);
+    float pres = min(e0, e1);
+    if(cpres < 0.001) return col;
 
     // black circle growing from the center to past the corners
     float maxR = length(iResolution.xy) / iResolution.y * 0.51;
-    col = mix(col, vec3(0.), S(length(q) - maxR * cubicInOut(pres)));
+    col = mix(col, vec3(0.), S(length(q) - maxR * cubicInOut(cpres)));
 
-    // the amp zooms in with overshoot; each key bumps size and brightness
+    // the amp zooms in behind the circle; each key bumps size and brightness
     float pulse = sk_keypulse_envelope();
     float fail = sk_fail_envelope();
-    float sc = IND_AMP * sk_ease_out_back(pres) * (1. + pulse * IND_BUMP);
+    float sc = IND_AMP * cubicInOut(pres) * (1. + pulse * IND_BUMP);
     if(sc < 1e-3) return col;
     vec2 ap = q / sc;
     float dj = sdJ(ap);

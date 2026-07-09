@@ -52,44 +52,52 @@ float sk_ease_out_back(float t) {
     return 1.0 + c3 * x * x * x + c1 * x * x;
 }
 
-float sk_keypulse_envelope() {
-    float age = iTime - u_last_key_time;
+// _at variants evaluate the envelope at an arbitrary time t (<= iTime;
+// there is no future to sample) — for phase-shifted copies of an envelope
+
+float sk_keypulse_envelope_at(float t) {
+    float age = t - u_last_key_time;
     float ramp = clamp(age / 0.03, 0.0, 1.0);
     float p = mix(u_key_bases.x, 1.0, ramp);
     float decay = clamp((age - 0.03) / 0.08, 0.0, 1.0);
     return p * (1.0 - decay * decay);
 }
+float sk_keypulse_envelope() { return sk_keypulse_envelope_at(iTime); }
 
-float sk_key_envelope() {
-    float age = iTime - u_last_key_time;
+float sk_key_envelope_at(float t) {
+    float age = t - u_last_key_time;
     float ramp = clamp(age / 0.06, 0.0, 1.0);
     float p = mix(u_key_bases.y, 1.0, ramp);
     float decay = clamp((age - 1.06) / 2.0, 0.0, 1.0);
     return p * (1.0 - sk_ease_out_back(pow(decay, 0.65)));
 }
+float sk_key_envelope() { return sk_key_envelope_at(iTime); }
 
-float sk_fail_envelope() {
-    float age = iTime - u_last_failed_unlock_time;
+float sk_fail_envelope_at(float t) {
+    float age = t - u_last_failed_unlock_time;
     float p = clamp(age / 0.03, 0.0, 1.0);
     float decay = clamp((age - 0.27) / 2.0, 0.0, 1.0);
     return p * pow(1.0 - decay, 3.0);
 }
+float sk_fail_envelope() { return sk_fail_envelope_at(iTime); }
 
-float sk_load_envelope() {
+float sk_load_envelope_at(float t) {
     float isLoading = step(-999.0, u_auth_started_time);
-    float authAge = iTime - u_auth_started_time;
-    float endedAge = iTime - u_last_failed_unlock_time;
+    float authAge = t - u_auth_started_time;
+    float endedAge = t - u_last_failed_unlock_time;
     float loading = isLoading * clamp((authAge - 0.1) / 0.03, 0.0, 1.0);
     float unloading = (1.0 - isLoading) * clamp(1.0 - endedAge / 0.03, 0.0, 1.0);
     return loading + unloading;
 }
+float sk_load_envelope() { return sk_load_envelope_at(iTime); }
 
-float sk_attention_envelope() {
-    float kf = sk_key_envelope() + sk_fail_envelope();
-    float load = sk_load_envelope();
+float sk_attention_envelope_at(float t) {
+    float kf = sk_key_envelope_at(t) + sk_fail_envelope_at(t);
+    float load = sk_load_envelope_at(t);
     kf = max(kf, load - 1.0);
     return min(kf + load, 1.0);
 }
+float sk_attention_envelope() { return sk_attention_envelope_at(iTime); }
 
 // ---------------------------------------------------------------------------
 // Shader body follows (injected by convert-shaders.sh)

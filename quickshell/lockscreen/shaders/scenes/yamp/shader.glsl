@@ -51,7 +51,7 @@ const float SCROLL_MAX = 0.09;
 // flips to the 3d planetscape and back every MODE_PERIOD. The global zoom
 // flips on the same period, offset by half — so the four quarters run
 // 2d-in, 2d-out, 3d-out, 3d-in.
-const float MODE_PERIOD = 40.;   // seconds per mode
+const float MODE_PERIOD = 60. * 8.;   // seconds per mode
 const float TRANS_DUR   = 1.2;   // flip transition duration
 const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
 const float ZOOM_OUT    = 0.30;  // global zoom-out amount
@@ -65,9 +65,10 @@ const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
 // reverses everything
-const float IND_AMP    = 0.2;   // indicator amp scale (screen units)
+const float IND_AMP    = 0.1;   // indicator amp scale (screen units)
 const float IND_BUMP   = 0.04;   // per-key amp scale bump
 const float IND_BRIGHT = 0.35;   // per-key brightness bump (toward white)
+const float IND_LAG    = 0.08;   // circle leads the amp by this, in and out
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -331,17 +332,22 @@ vec3 render(vec2 p, vec2 tp){
 
 // --- key indicator -----------------------------------------------------------
 vec3 keyIndicator(vec3 col, vec2 q){
-    float pres = sk_attention_envelope();
-    if(pres < 0.001) return col;
+    // the circle leads the amp by IND_LAG both ways: max of the live and the
+    // delayed envelope rises first and falls last, min does the opposite
+    float e0 = sk_attention_envelope();
+    float e1 = sk_attention_envelope_at(iTime - IND_LAG);
+    float cpres = max(e0, e1);
+    float pres = min(e0, e1);
+    if(cpres < 0.001) return col;
 
     // black circle growing from the center to past the corners
     float maxR = length(iResolution.xy) / iResolution.y * 0.51;
-    col = mix(col, vec3(0.), S(length(q) - maxR * cubicInOut(pres)));
+    col = mix(col, vec3(0.), S(length(q) - maxR * cubicInOut(cpres)));
 
-    // the amp zooms in with overshoot; each key bumps size and brightness
+    // the amp zooms in behind the circle; each key bumps size and brightness
     float pulse = sk_keypulse_envelope();
     float fail = sk_fail_envelope();
-    float sc = IND_AMP * sk_ease_out_back(pres) * (1. + pulse * IND_BUMP);
+    float sc = IND_AMP * cubicInOut(pres) * (1. + pulse * IND_BUMP);
     if(sc < 1e-3) return col;
     vec2 ap = q / sc;
     float dj = sdJ(ap);
