@@ -97,14 +97,16 @@ float sk_attention_envelope() {
 // yasuo quadtree scene, X glyphs replaced by the and& ampersand.
 // Per tile, on its own clock (speed n*2*SPEED), the loop runs:
 //   off (long) -> rotate (J/P counter-spin 360) -> off (short)
-//   -> fill J (white wipe) -> fill P (offset wipe) -> on -> unfill -> loop
+//   -> fill J (gradient wipe) -> fill P (offset wipe) -> on -> unfill -> loop
 // sdJ/sdP sample a baked SDF texture (gen_sdf.py); the design gap (PAD) of
 // the J is carved out of the P, so the pieces stay separated even mid-spin.
+// Tiles are squircles (SQUIRCLENESS knob); the rim band refracts the content
+// like glass (DISTORT knobs).
 
 // --- knobs ------------------------------------------------------------------
 const float SPEED      = 0.125;  // global animation speed multiplier
 const float T_OFF1     = 5.0;   // off, long (dark grey)
-const float T_ROTATE   = 0.583;  // J/P fast 360 spin (3x faster)
+const float T_ROTATE   = 0.2915; // J/P fast 360 spin (6x faster)
 const float T_OFF2     = 2.0;   // off, short
 const float T_FILL     = 0.184;  // duration of each white fill wipe (6x faster)
 const float T_FILL_LAG = 0.067; // P wipe starts this long after J wipe (6x faster)
@@ -114,7 +116,15 @@ const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
 const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
-const float SCROLL     = 0.1;   // background scroll speed
+const float SCROLL     = 0.075; // vertical scroll speed
+
+const float SQUIRCLENESS = 0.5;   // tile shape: 0 = circle, 1 = square
+const float DISTORT      = 0.06;  // glass refraction strength at the tile rim
+const float DISTORT_BAND = 0.12;  // rim band that refracts (6x border width)
+
+// and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
+const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
+const vec3 GRAD_BOT = vec3(0.063, 0.596, 0.706);
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -189,13 +199,33 @@ float fillAnim(float frame, float start){
 
 vec2 rotAround(vec2 p, vec2 c, float a){ return (p-c)*Rot(a)+c; }
 
-vec3 drawAmp(vec2 p, float n, vec3 col, vec2 prevP){
-    // outside the tile circle only the ring can show through the
-    // max(length(prevP)-1., ...) clip — skip both glyph SDFs entirely
-    float clip = length(prevP) - 1.;
-    if (clip * iResolution.y > 1.5) {
-        float dring = abs(length(prevP)-0.99)-0.01;
-        return mix(col, vec3(1.), S(dring));
+// squircle tile: circle/rounded-box mix (Hyeve, shadertoy) — a true SDF,
+// unlike the superellipse. Returns (distance, gradient); the gradient is
+// the same mix of both shapes' gradients (mix is linear, so it's exact).
+vec3 sdSquircle(vec2 p, float r, float n){
+    float lp = max(length(p), 1e-6);
+    vec2 q = abs(p) - n*r;
+    vec2 mq = max(q, 0.);
+    float lmq = length(mq);
+    float square = min(max(q.x,q.y),0.) + lmq - (r - n*r);
+    vec2 gsq = (lmq > 1e-6) ? sign(p)*mq/lmq
+             : ((q.x > q.y) ? vec2(sign(p.x),0.) : vec2(0.,sign(p.y)));
+    vec2 g = mix(p/lp, gsq, n);
+    g /= max(length(g), 1e-6);
+    return vec3(mix(lp - r, square, n), g);
+}
+
+// brand gradient across the glyph (glyph space spans y in [-0.5,0.5])
+vec3 ampGradient(vec2 p){
+    return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
+}
+
+vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq){
+    // outside the tile squircle only the border can show through the
+    // max(sq.x, ...) clip — skip both glyph SDFs entirely
+    float dring = abs(sq.x + 0.01) - 0.01;
+    if (sq.x * iResolution.y > 1.5) {
+        return mix(col, vec3(0.3), S(dring));
     }
 
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
@@ -213,28 +243,34 @@ vec3 drawAmp(vec2 p, float n, vec3 col, vec2 prevP){
     float dj = sdJ(pJ);
     float dp = max(sdP(pP), PAD - dj);            // P with the J carved out
     float dAmp = min(dj, dp) * AMP_SCALE;
-    dAmp = max(length(prevP)-1., dAmp);
+    dAmp = max(sq.x, dAmp);
     col = mix(col, vec3(0.3), S(dAmp));           // grey base
 
-    // fill states: white circular wipes clipped inside each piece
+    // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
     float fp = fillAnim(frame, FILLP_START);
     float wj = max(dj, length(pJ-SEED_J) - (fj*(RJ+0.02)-0.02));
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
     float dw = min(wj, wp) * AMP_SCALE;
-    dw = max(length(prevP)-1., dw);
-    dw = min(dw, abs(length(prevP)-0.99)-0.01);   // tile ring stays
-    col = mix(col, vec3(1.), S(dw));
+    dw = max(sq.x, dw);
+    col = mix(col, ampGradient(p), S(dw));
+
+    col = mix(col, vec3(0.3), S(dring));          // grey squircle border
     return col;
 }
 
 vec3 quadTree(vec2 p, vec3 col, float nn){
     p*=2.;
-    vec2 prevP = p;
+    vec3 sq = sdSquircle(p, 1., SQUIRCLENESS);
+
+    // glass: inside the rim band the content is sampled outward along the
+    // squircle gradient, so the amps look refracted near the edge
+    float lens = smoothstep(-DISTORT_BAND, 0., sq.x);
+    p += sq.yz * lens*lens * DISTORT;
 
     // extra-large level: sometimes the whole cell is one huge ampersand
     if(fract(nn*57.31) < BIG_CHANCE){
-        return drawAmp(p*0.5, nn+0.3, col, prevP);
+        return drawAmp(p*0.5, nn+0.3, col, sq);
     }
 
     if(nn<0.5){
@@ -251,10 +287,10 @@ vec3 quadTree(vec2 p, vec3 col, float nn){
     float n2 = n;
     vec2 cell = id;
 
-    // three subdivision levels (third one adds the extra-small amps)
-    float thresholds[3] = float[](0.3+nn, 0.8+nn, 0.9+nn*0.5);
+    // four subdivision levels (the last two add the extra-small amps)
+    float thresholds[4] = float[](0.3+nn, 0.8+nn, 0.9+nn*0.5, 0.93+nn*0.5);
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
     {
         n = random(cell + id + float(i) * 12.34+nn);
 
@@ -266,7 +302,7 @@ vec3 quadTree(vec2 p, vec3 col, float nn){
         gr = fract(gr) - 0.5;
     }
 
-    col = drawAmp(gr, n2+nn, col, prevP);
+    col = drawAmp(gr, n2+nn, col, sq);
 
     return col;
 }
@@ -281,20 +317,18 @@ vec3 render(vec2 p, vec3 col){
     float n2 = n;
     vec2 cell = id;
 
-    float thresholds[2] = float[](0.6, 0.8);
+    float thresholds[3] = float[](0.6, 0.8, 0.9);
 
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < 3; i++)
     {
         n = random(cell + id + float(i) * 12.34);
 
         if (n < thresholds[i])
             break;
 
-        if(i<2){
-            gr *= 2.0;
-            cell = floor(gr);
-            gr = fract(gr) - 0.5;
-        }
+        gr *= 2.0;
+        cell = floor(gr);
+        gr = fract(gr) - 0.5;
     }
 
     col = quadTree(gr,col,n2);
