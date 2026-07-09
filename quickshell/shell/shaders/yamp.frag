@@ -123,16 +123,24 @@ const float SCROLL     = 0.03; // vertical scroll speed
 const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
 const float DISTORT      = 0.12;  // glass refraction strength at the tile rim
 const float DISTORT_BAND = 0.12;  // rim band that refracts
+const float TILE_PAD     = 0.1;   // squircle padding to its cell edge; the
+                                  // horizon dies out within it, so cells of
+                                  // different levels stay continuous
+const float SPHERE_SHADE = 0.1;   // 3d: brighten tile top / darken bottom
 
 const float DARKEN = 0.25;        // off-amp darkening per subdivision level
 
-const float NOISE_LO    = 0.05;  // background noise brightness range
-const float NOISE_HI    = 0.15;
+const float NOISE_LO    = 0.0;   // background noise brightness range
+const float NOISE_HI    = 0.05;
 const float NOISE_SCALE = 3.0;   // background noise texture frequency
+const float BG_SPEED    = 0.3;   // background scroll, fraction of SCROLL
+const float STAR_BRIGHT = 0.7;   // starfield brightness
 
 const float PILE_BAND = 0.08;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
-const float PILE_GAIN = 2.5;     // brightness pile-up at the horizon
+const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
+
+const float SCROLL_VAR = 0.5;    // per-tile content scroll speed variance
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -230,14 +238,30 @@ vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
 }
 
+// two-layer sparse starfield, points jittered within their grid cell
+float stars(vec2 p){
+    float v = 0.;
+    for(int i = 0; i < 2; i++){
+        vec2 g = p * (6. + 5.*float(i)) + float(i)*3.7;
+        vec2 id = floor(g);
+        vec2 f = fract(g) - 0.5;
+        float rn = random(id);
+        vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5)*0.7;
+        v += smoothstep(0.06, 0., length(f - off)) * step(0.9, rn) * fract(rn*91.17);
+    }
+    return v;
+}
+
 vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
-    // event horizon: outside the tile the noise gets sucked toward the rim
-    // and piles up — this is both the background and the tile border
+    // event horizon: outside the tile the noise and stars get sucked toward
+    // the rim and pile up — this is both the background and the tile border.
+    // windowed to zero within TILE_PAD so neighbouring cells agree
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
-    pull *= pull;
-    float nse = texture(iChannel1, fract(tp + sq.yz * pull * PILE_PULL)).r;
-    vec3 bg = vec3(mix(NOISE_LO, NOISE_HI, nse) * (1. + PILE_GAIN * pull));
-    vec3 col = mix(bg, vec3(0.), S(sq.x));        // inside the horizon: black
+    pull *= pull * smoothstep(TILE_PAD, 0., sq.x);
+    vec2 tps = tp + sq.yz * pull * PILE_PULL;
+    float nse = texture(iChannel1, fract(tps)).r;
+    float v = mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT;
+    vec3 col = mix(vec3(v * (1. + PILE_GAIN * pull)), vec3(0.), S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if (sq.x * iResolution.y > 1.5) return col;
@@ -270,12 +294,15 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
     dw = max(sq.x, dw);
     col = mix(col, ampGradient(p), S(dw));
 
+    // 3d: spherical top-light shading across the whole tile
+    float ny = sq.z * (1. - TILE_PAD + sq.x) / (1. - TILE_PAD);
+    col *= 1. + SPHERE_SHADE * ny * S(sq.x);
     return col;
 }
 
 vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p*=2.;
-    vec3 sq = sdSquircle(p, 1., SQUIRCLENESS);
+    vec3 sq = sdSquircle(p, 1. - TILE_PAD, SQUIRCLENESS);
 
     // glass: inside the rim band the content is sampled outward along the
     // squircle gradient, so the amps look refracted near the edge
@@ -288,7 +315,7 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     }
 
     if(nn<0.5){
-        p.y-=iTime*SCROLL+nn;
+        p.y-=iTime*SCROLL*(1.+(nn*4.-1.)*SCROLL_VAR)+nn;
         p*=1.2;
     } else {
         p*=1.2+pulseAnim(nn)*0.5;
@@ -353,8 +380,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
 
-    // noise coords, counter-scrolling against the grid
-    vec2 tp = vec2(p.x, p.y + iTime*SCROLL) * NOISE_SCALE;
+    // noise coords, counter-scrolling slowly against the grid
+    vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;
 
     fragColor = vec4(render(p, tp), 1.0);
 }
