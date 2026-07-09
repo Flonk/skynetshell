@@ -115,13 +115,13 @@ float sk_attention_envelope() { return sk_attention_envelope_at(iTime); }
 
 // --- knobs ------------------------------------------------------------------
 const float SPEED      = 0.8;    // global animation speed multiplier
-const float T_OFF1     = 5.0;   // off, long (dark grey)
+const float T_OFF1     = 6.0;   // off, long (dark grey)
 const float T_ROTATE   = 1.749; // J/P fast 360 spin
-const float T_OFF2     = 2.0;   // off, short
+const float T_OFF2     = 2.5;   // off, short
 const float T_FILL     = 1.104;  // duration of each white fill wipe
 const float T_FILL_LAG = 0.067; // P wipe starts this long after J wipe
-const float T_ON       = 1.55;  // fully white hold
-const float T_UNFILL   = 0.134;  // wipes reverse out
+const float T_ON       = 2.;  // fully white hold
+const float T_UNFILL   = 1.;  // wipes reverse out
 const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
