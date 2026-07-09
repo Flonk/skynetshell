@@ -22,9 +22,15 @@ const float AMP_SCALE  = 0.94;  // glyph size within its tile
 const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
 const float SCROLL     = 0.01; // vertical scroll speed
 
-const float SQUIRCLENESS = 0.5;   // tile shape: 0 = circle, 1 = square
+const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
 const float DISTORT      = 0.06;  // glass refraction strength at the tile rim
 const float DISTORT_BAND = 0.12;  // rim band that refracts
+
+const float DARKEN = 0.15;        // off-amp darkening per subdivision level
+
+const float TRUCHET_SCALE  = 4.;    // background truchet base grid frequency
+const float TRUCHET_BRIGHT = 0.045; // truchet band brightness above black
+const float NOISE_AMT      = 0.02;  // grain overlaid on the background
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -39,9 +45,7 @@ const float UNFILL_START = ON_START + T_ON;
 const float LOOP_LEN     = UNFILL_START + T_UNFILL + T_REST;
 
 #define Rot(a) mat2(cos(a),-sin(a),sin(a),cos(a))
-#define antialiasing(n) n/min(iResolution.y,iResolution.x)
 #define S(d) 1.-smoothstep(-1.3,1.3, (d)*iResolution.y )
-#define B(p,s) max(abs(p).x-s.x,abs(p).y-s.y)
 
 float random (vec2 p) {
     return fract(sin(dot(p.xy, vec2(12.9898,78.233)))* 43758.5453123);
@@ -124,7 +128,7 @@ vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
 }
 
-vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq){
+vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq, float depth){
     // outside the tile squircle only the border can show through the
     // max(sq.x, ...) clip — skip both glyph SDFs entirely
     float dring = abs(sq.x + 0.01) - 0.01;
@@ -148,7 +152,8 @@ vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq){
     float dp = max(sdP(pP), PAD - dj);            // P with the J carved out
     float dAmp = min(dj, dp) * AMP_SCALE;
     dAmp = max(sq.x, dAmp);
-    col = mix(col, vec3(0.3), S(dAmp));           // grey base
+    // grey base, darker per subdivision level (on-state fill stays bright)
+    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp));
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
@@ -163,7 +168,7 @@ vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq){
     return col;
 }
 
-vec3 quadTree(vec2 p, vec3 col, float nn){
+vec3 quadTree(vec2 p, vec3 col, float nn, float depth){
     p*=2.;
     vec3 sq = sdSquircle(p, 1., SQUIRCLENESS);
 
@@ -174,7 +179,7 @@ vec3 quadTree(vec2 p, vec3 col, float nn){
 
     // extra-large level: sometimes the whole cell is one huge ampersand
     if(fract(nn*57.31) < BIG_CHANCE){
-        return drawAmp(p*0.5, nn+0.3, col, sq);
+        return drawAmp(p*0.5, nn+0.3, col, sq, depth);
     }
 
     if(nn<0.5){
@@ -204,9 +209,10 @@ vec3 quadTree(vec2 p, vec3 col, float nn){
         gr *= 2.0;
         cell = floor(gr);
         gr = fract(gr) - 0.5;
+        depth += 1.;
     }
 
-    col = drawAmp(gr, n2+nn, col, sq);
+    col = drawAmp(gr, n2+nn, col, sq, depth);
 
     return col;
 }
@@ -220,6 +226,7 @@ vec3 render(vec2 p, vec3 col){
     float n = random(id);
     float n2 = n;
     vec2 cell = id;
+    float depth = 0.;
 
     float thresholds[3] = float[](0.6, 0.8, 0.9);
 
@@ -233,25 +240,52 @@ vec3 render(vec2 p, vec3 col){
         gr *= 2.0;
         cell = floor(gr);
         gr = fract(gr) - 0.5;
+        depth += 1.;
     }
 
-    col = quadTree(gr,col,n2);
-    float d = abs(B(gr,vec2(0.47)))-0.007;
-    d = max(-(abs(gr.x)-0.4),d);
-    d = max(-(abs(gr.y)-0.4),d);
-    col = mix(col,vec3(1.),S(d));
+    return quadTree(gr, col, n2, depth);
+}
 
-    gr = abs(gr)-0.42;
-    d = length(gr)-0.01;
-    col = mix(col,vec3(1.),S(d));
-    return col;
+// --- background: muted quadtree truchet (after Shane's shadertoy) -----------
+// non-overlapping arcs stay inside their cell, so no neighbor sweep is needed
+vec2 hash22(vec2 p) {
+    float n = sin(dot(p, vec2(57, 27)));
+    return fract(vec2(262144, 32768)*n);
+}
+
+float truchet(vec2 p){
+    const float th[3] = float[](0.35, 0.7, 1.0);
+    float d = 1e5;
+    float dim = 1.;
+    for(int k = 0; k < 3; k++){
+        vec2 ip = floor(p*dim);
+        vec2 rnd = hash22(ip);
+        bool put = rnd.y < th[k];
+        // skip if a larger tile already claimed this region
+        if(k == 1 && hash22(floor(ip/2.)).y < th[0]) put = false;
+        if(k == 2 && (hash22(floor(ip/2.)).y < th[1]
+                   || hash22(floor(ip/4.)).y < th[0])) put = false;
+        if(put){
+            vec2 lp = p - (ip + .5)/dim;
+            if(rnd.x < .5) lp.x = -lp.x;
+            float c = abs(length(lp - vec2(-.5, .5)/dim) - .5/dim) - .5/6./dim;
+            c = min(c, abs(length(lp - vec2(.5, -.5)/dim) - .5/dim) - .5/6./dim);
+            d = min(d, c);
+        }
+        dim *= 2.;
+    }
+    return d;
 }
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
 
-    vec3 col = vec3(0.);
+    // near-black truchet + grain, scrolling with the grid
+    vec2 tp = vec2(p.x, p.y - iTime*SCROLL) * TRUCHET_SCALE;
+    vec3 col = vec3(TRUCHET_BRIGHT) * S(truchet(tp)/TRUCHET_SCALE);
+    col += (random(fragCoord) - .5) * NOISE_AMT;
+    col = max(col, 0.);
 
     col = render(p,col);
 
