@@ -139,6 +139,7 @@ const float STAR_BRIGHT = 0.7;   // starfield brightness
 const float PILE_BAND = 0.1;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
+const float AURORA_GLOW = 0.8;   // additive blue aurora strength at the rim
 
 const float SCROLL_MIN = 0.045;  // tile content scroll speed, random per tile
 const float SCROLL_MAX = 0.09;
@@ -151,8 +152,8 @@ const float MODE_PERIOD = 40.;   // seconds per mode
 const float TRANS_DUR   = 1.2;   // flip transition duration
 const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
 const float ZOOM_OUT    = 0.30;  // global zoom-out amount
-const float ZOOM_ECC    = 0.7;   // zoom target distance from screen center
-const float ZOOM_DRIFT  = 23.7;  // zoom target orbit period (s) — offbeat
+const float ZOOM_ECC    = 2.7;   // zoom target distance from screen center
+const float ZOOM_DRIFT  = 2300.7;  // zoom target orbit period (s) — offbeat
                                  // vs MODE_PERIOD so the spot always differs
 const float RING_2D     = 0.3;   // 2d-mode border brightness
 const float BORDER_2D   = 0.01;  // 2d-mode border half-width
@@ -291,15 +292,16 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     // event horizon (3d): outside the tile the noise and stars get sucked
     // toward the rim and pile up into a blue aurora — background and tile
     // border in one. windowed to zero within the pad so neighbouring cells
-    // agree. inside, 3d inverts the tile: blue planet body, grey amps
+    // agree. the additive glow keeps the aurora solid where the noise is dark
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
     pull *= pull * smoothstep(pad, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
     float v3 = (mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT)
              * (1. + PILE_GAIN * pull);
-    vec3 col = mix(v3 * m3d * mix(vec3(1.), sphereGrad, pull),
-                   sphereGrad * tshade * m3d, S(sq.x));
+    vec3 bgc = v3 * mix(vec3(1.), sphereGrad * 1.4, min(pull * 2., 1.))
+             + sphereGrad * pull * AURORA_GLOW;
+    vec3 col = mix(bgc * m3d, vec3(0.), S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if (sq.x * iResolution.y > 1.5) return col;
@@ -330,8 +332,7 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
     float dw = min(wj, wp) * AMP_SCALE;
     dw = max(sq.x, dw);
-    // fill: blue gradient in 2d, black in the inverted 3d mode
-    col = mix(col, mix(ampGradient(p), vec3(0.), m3d), S(dw));
+    col = mix(col, ampGradient(p), S(dw));
 
     // 3d: spherical top-lit sheen — blend toward white above the equator
     // and black below. scaled by the TILE's depth shade (never the per-amp
