@@ -123,7 +123,7 @@ const float SCROLL     = 0.03; // vertical scroll speed
 const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
 const float DISTORT      = 0.12;  // glass refraction strength at the tile rim
 const float DISTORT_BAND = 0.12;  // rim band that refracts
-const float TILE_PAD     = 0.1;   // squircle padding to its cell edge; the
+const float TILE_PAD     = 0.15;   // squircle padding to its cell edge; the
                                   // horizon dies out within it, so cells of
                                   // different levels stay continuous
 const float SPHERE_SHADE = 0.15;   // 3d: brighten tile top / darken bottom
@@ -158,13 +158,9 @@ const float RING_2D     = 0.3;   // 2d-mode border brightness
 const float BORDER_2D   = 0.01;  // 2d-mode border half-width
 const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
 
-const float BIG_ORANGE  = 0.015; // chance the huge amp is the orange one
-
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
 const vec3 GRAD_BOT = vec3(0.063, 0.596, 0.706);
-const vec3 ORANGE_TOP = vec3(0.96, 0.62, 0.30);
-const vec3 ORANGE_BOT = vec3(0.85, 0.42, 0.10);
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -267,9 +263,6 @@ vec3 sdSquircle(vec2 p, float r, float n){
 vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
 }
-vec3 orangeGradient(vec2 p){
-    return mix(ORANGE_BOT, ORANGE_TOP, clamp(p.y + 0.5, 0., 1.));
-}
 
 // two-layer sparse starfield, points jittered within their grid cell
 float stars(vec2 p){
@@ -285,21 +278,28 @@ float stars(vec2 p){
     return v;
 }
 
-vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth,
-             vec2 tp, float orange){
+vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     float m3d = mode3d();
     float pad = mix(TILE_PAD_2D, TILE_PAD, m3d);
 
+    // spherical vertical coordinate (+1 top rim .. -1 bottom) and the
+    // planet gradient it picks
+    float ny = clamp(sq.z * (1. - pad + sq.x) / (1. - pad), -1., 1.);
+    vec3 sphereGrad = mix(GRAD_BOT, GRAD_TOP, ny*0.5 + 0.5);
+    float tshade = pow(1. - DARKEN, tileDepth);
+
     // event horizon (3d): outside the tile the noise and stars get sucked
-    // toward the rim and pile up — background and tile border in one.
-    // windowed to zero within the pad so neighbouring cells agree
+    // toward the rim and pile up into a blue aurora — background and tile
+    // border in one. windowed to zero within the pad so neighbouring cells
+    // agree. inside, 3d inverts the tile: blue planet body, grey amps
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
     pull *= pull * smoothstep(pad, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
     float v3 = (mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT)
              * (1. + PILE_GAIN * pull);
-    vec3 col = mix(vec3(v3 * m3d), vec3(0.), S(sq.x));
+    vec3 col = mix(v3 * m3d * mix(vec3(1.), sphereGrad, pull),
+                   sphereGrad * tshade * m3d, S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if (sq.x * iResolution.y > 1.5) return col;
@@ -320,11 +320,8 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth,
     float dp = max(sdP(pP), PAD - dj);            // P with the J carved out
     float dAmp = min(dj, dp) * AMP_SCALE;
     dAmp = max(sq.x, dAmp);
-    // base, darker per subdivision level (on-state fill stays bright);
-    // the rare orange amp wears its gradient dimmed instead of grey
-    float shade = pow(1. - DARKEN, depth);
-    vec3 base = mix(vec3(0.3), orangeGradient(p)*0.55, orange);
-    col = mix(col, base * shade, S(dAmp));
+    // grey base, darker per subdivision level
+    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp));
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
@@ -333,15 +330,14 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth,
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
     float dw = min(wj, wp) * AMP_SCALE;
     dw = max(sq.x, dw);
-    col = mix(col, mix(ampGradient(p), orangeGradient(p), orange), S(dw));
+    // fill: blue gradient in 2d, black in the inverted 3d mode
+    col = mix(col, mix(ampGradient(p), vec3(0.), m3d), S(dw));
 
     // 3d: spherical top-lit sheen — blend toward white above the equator
-    // and black below, so the dark tile body shades too. scaled by the
-    // TILE's depth shade (never the per-amp one, which would break the
-    // gradient inside a tile), and off in 2d
-    float ny = sq.z * (1. - pad + sq.x) / (1. - pad);
+    // and black below. scaled by the TILE's depth shade (never the per-amp
+    // one, which would break the gradient inside a tile), and off in 2d
     col = mix(col, vec3(step(0., ny)),
-              abs(ny) * SPHERE_SHADE * pow(1. - DARKEN, tileDepth) * m3d * S(sq.x));
+              abs(ny) * SPHERE_SHADE * tshade * m3d * S(sq.x));
 
     // 2d mode: hard border ring on the rim
     float dring = abs(sq.x + BORDER_2D) - BORDER_2D;
@@ -358,11 +354,9 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     float lens = smoothstep(-DISTORT_BAND, 0., sq.x);
     p += sq.yz * lens*lens * DISTORT * mode3d();
 
-    // extra-large level: sometimes the whole cell is one huge ampersand,
-    // very rarely the orange one
-    float big = fract(nn*57.31);
-    if(big < BIG_CHANCE){
-        return drawAmp(p*0.5, nn+0.3, sq, depth, depth, tp, step(big, BIG_ORANGE));
+    // extra-large level: sometimes the whole cell is one huge ampersand
+    if(fract(nn*57.31) < BIG_CHANCE){
+        return drawAmp(p*0.5, nn+0.3, sq, depth, depth, tp);
     }
 
     if(nn<0.5){
@@ -396,7 +390,7 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
         ad += 1.;
     }
 
-    return drawAmp(gr, n2+nn, sq, ad, depth, tp, 0.);
+    return drawAmp(gr, n2+nn, sq, ad, depth, tp);
 }
 
 vec3 render(vec2 p, vec2 tp){
