@@ -124,9 +124,9 @@ const float DISTORT_BAND = 0.12;  // rim band that refracts
 
 const float DARKEN = 0.15;        // off-amp darkening per subdivision level
 
-const float TRUCHET_SCALE  = 4.;    // background truchet base grid frequency
-const float TRUCHET_BRIGHT = 0.045; // truchet band brightness above black
-const float NOISE_AMT      = 0.02;  // grain overlaid on the background
+const float NOISE_LO    = 0.05;  // background noise brightness range
+const float NOISE_HI    = 0.15;
+const float NOISE_SCALE = 1.0;   // background noise texture frequency
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -231,6 +231,8 @@ vec3 drawAmp(vec2 p, float n, vec3 col, vec3 sq, float depth){
     if (sq.x * iResolution.y > 1.5) {
         return mix(col, vec3(0.3), S(dring));
     }
+
+    col = mix(col, vec3(0.), S(sq.x));            // background stays outside
 
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
     p /= AMP_SCALE;
@@ -342,46 +344,14 @@ vec3 render(vec2 p, vec3 col){
     return quadTree(gr, col, n2, depth);
 }
 
-// --- background: muted quadtree truchet (after Shane's shadertoy) -----------
-// non-overlapping arcs stay inside their cell, so no neighbor sweep is needed
-vec2 hash22(vec2 p) {
-    float n = sin(dot(p, vec2(57, 27)));
-    return fract(vec2(262144, 32768)*n);
-}
-
-float truchet(vec2 p){
-    const float th[3] = float[](0.35, 0.7, 1.0);
-    float d = 1e5;
-    float dim = 1.;
-    for(int k = 0; k < 3; k++){
-        vec2 ip = floor(p*dim);
-        vec2 rnd = hash22(ip);
-        bool put = rnd.y < th[k];
-        // skip if a larger tile already claimed this region
-        if(k == 1 && hash22(floor(ip/2.)).y < th[0]) put = false;
-        if(k == 2 && (hash22(floor(ip/2.)).y < th[1]
-                   || hash22(floor(ip/4.)).y < th[0])) put = false;
-        if(put){
-            vec2 lp = p - (ip + .5)/dim;
-            if(rnd.x < .5) lp.x = -lp.x;
-            float c = abs(length(lp - vec2(-.5, .5)/dim) - .5/dim) - .5/6./dim;
-            c = min(c, abs(length(lp - vec2(.5, -.5)/dim) - .5/dim) - .5/6./dim);
-            d = min(d, c);
-        }
-        dim *= 2.;
-    }
-    return d;
-}
-
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
 
-    // near-black truchet + grain, scrolling with the grid
-    vec2 tp = vec2(p.x, p.y - iTime*SCROLL) * TRUCHET_SCALE;
-    vec3 col = vec3(TRUCHET_BRIGHT) * S(truchet(tp)/TRUCHET_SCALE);
-    col += (random(fragCoord) - .5) * NOISE_AMT;
-    col = max(col, 0.);
+    // noise texture background (iChannel1), only visible outside the tiles
+    vec2 tp = vec2(p.x, p.y - iTime*SCROLL) * NOISE_SCALE;
+    float nse = texture(iChannel1, fract(tp)).r;
+    vec3 col = vec3(mix(NOISE_LO, NOISE_HI, nse));
 
     col = render(p,col);
 
