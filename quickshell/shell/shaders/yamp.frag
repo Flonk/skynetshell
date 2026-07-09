@@ -136,10 +136,10 @@ const float NOISE_SCALE = 3.0;   // background noise texture frequency
 const float BG_SPEED    = 0.3;   // background scroll, fraction of SCROLL
 const float STAR_BRIGHT = 0.7;   // starfield brightness
 
-const float PILE_BAND = 0.1;    // event-horizon falloff width (tile units)
+const float PILE_BAND = 0.14;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
-const float AURORA_GLOW = 0.8;   // additive blue aurora strength at the rim
+const float AURORA_GLOW = 0.45;   // additive blue aurora strength at the rim
 
 const float SCROLL_MIN = 0.045;  // tile content scroll speed, random per tile
 const float SCROLL_MAX = 0.09;
@@ -152,7 +152,7 @@ const float MODE_PERIOD = 40.;   // seconds per mode
 const float TRANS_DUR   = 1.2;   // flip transition duration
 const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
 const float ZOOM_OUT    = 0.30;  // global zoom-out amount
-const float ZOOM_ECC    = 2.7;   // zoom target distance from screen center
+const float ZOOM_ECC    = 5.7;   // zoom target distance from screen center
 const float ZOOM_DRIFT  = 2300.7;  // zoom target orbit period (s) — offbeat
                                  // vs MODE_PERIOD so the spot always differs
 const float RING_2D     = 0.3;   // 2d-mode border brightness
