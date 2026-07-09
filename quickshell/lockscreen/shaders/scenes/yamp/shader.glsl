@@ -10,10 +10,10 @@ const float SPEED      = 0.125;  // global animation speed multiplier
 const float T_OFF1     = 5.0;   // off, long (dark grey)
 const float T_ROTATE   = 0.583;  // J/P fast 360 spin (3x faster)
 const float T_OFF2     = 2.0;   // off, short
-const float T_FILL     = 0.367;  // duration of each white fill wipe (3x faster)
-const float T_FILL_LAG = 0.133; // P wipe starts this long after J wipe (3x faster)
+const float T_FILL     = 0.184;  // duration of each white fill wipe (6x faster)
+const float T_FILL_LAG = 0.067; // P wipe starts this long after J wipe (6x faster)
 const float T_ON       = 1.55;  // fully white hold
-const float T_UNFILL   = 0.267;  // wipes reverse out (3x faster)
+const float T_UNFILL   = 0.134;  // wipes reverse out (6x faster)
 const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
@@ -140,7 +140,11 @@ float sdShape(vec2 p, int i0, int i1)
     for (int i = i0; i < i1; i++)
     {
         vec2 qa = AMP[3*i], qb = AMP[3*i+1], qc = AMP[3*i+2];
-        d = min(d, udBezier(p, qa, qb, qc));
+        // the curve stays within 0.29 of qa (max control-point extent is
+        // 0.284), so segments that can't beat d skip the exact solve
+        float bound = d + 0.29;
+        if (dot2(p - qa) < bound*bound)
+            d = min(d, udBezier(p, qa, qb, qc));
 
         float ay = qa.y - 2.0*qb.y + qc.y;
         float by = qb.y - qa.y;
@@ -194,6 +198,14 @@ float fillAnim(float frame, float start){
 vec2 rotAround(vec2 p, vec2 c, float a){ return (p-c)*Rot(a)+c; }
 
 vec3 drawAmp(vec2 p, float n, vec3 col, vec2 prevP){
+    // outside the tile circle only the ring can show through the
+    // max(length(prevP)-1., ...) clip — skip both glyph SDFs entirely
+    float clip = length(prevP) - 1.;
+    if (clip * iResolution.y > 1.5) {
+        float dring = abs(length(prevP)-0.99)-0.01;
+        return mix(col, vec3(1.), S(dring));
+    }
+
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
     p /= AMP_SCALE;
 
