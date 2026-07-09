@@ -139,7 +139,6 @@ const float STAR_BRIGHT = 0.7;   // starfield brightness
 const float PILE_BAND = 0.14;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
-const float AURORA_GLOW = 0.45;   // additive blue aurora strength at the rim
 
 const float SCROLL_MIN = 0.045;  // tile content scroll speed, random per tile
 const float SCROLL_MAX = 0.09;
@@ -158,6 +157,13 @@ const float ZOOM_DRIFT  = 2300.7;  // zoom target orbit period (s) — offbeat
 const float RING_2D     = 0.3;   // 2d-mode border brightness
 const float BORDER_2D   = 0.01;  // 2d-mode border half-width
 const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
+
+// key indicator: on keypress a black circle fills the screen while a blue
+// amp zooms in; each key bumps the amp, errors turn it red, inactivity
+// reverses everything
+const float IND_AMP    = 0.45;   // indicator amp scale (screen units)
+const float IND_BUMP   = 0.12;   // per-key amp scale bump
+const float IND_BRIGHT = 0.35;   // per-key brightness bump (toward white)
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -283,25 +289,21 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     float m3d = mode3d();
     float pad = mix(TILE_PAD_2D, TILE_PAD, m3d);
 
-    // spherical vertical coordinate (+1 top rim .. -1 bottom) and the
-    // planet gradient it picks
+    // spherical vertical coordinate (+1 top rim .. -1 bottom)
     float ny = clamp(sq.z * (1. - pad + sq.x) / (1. - pad), -1., 1.);
-    vec3 sphereGrad = mix(GRAD_BOT, GRAD_TOP, ny*0.5 + 0.5);
     float tshade = pow(1. - DARKEN, tileDepth);
 
     // event horizon (3d): outside the tile the noise and stars get sucked
-    // toward the rim and pile up into a blue aurora — background and tile
+    // toward the rim and pile up into a bright horizon — background and tile
     // border in one. windowed to zero within the pad so neighbouring cells
-    // agree. the additive glow keeps the aurora solid where the noise is dark
+    // agree
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
     pull *= pull * smoothstep(pad, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
     float v3 = (mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT)
              * (1. + PILE_GAIN * pull);
-    vec3 bgc = v3 * mix(vec3(1.), sphereGrad * 1.4, min(pull * 2., 1.))
-             + sphereGrad * pull * AURORA_GLOW;
-    vec3 col = mix(bgc * m3d, vec3(0.), S(sq.x));
+    vec3 col = mix(vec3(v3) * m3d, vec3(0.), S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if (sq.x * iResolution.y > 1.5) return col;
@@ -423,9 +425,32 @@ vec3 render(vec2 p, vec2 tp){
     return quadTree(gr, n2, depth, tp);
 }
 
+// --- key indicator -----------------------------------------------------------
+vec3 keyIndicator(vec3 col, vec2 q){
+    float pres = sk_attention_envelope();
+    if(pres < 0.001) return col;
+
+    // black circle growing from the center to past the corners
+    float maxR = length(iResolution.xy) / iResolution.y * 0.51;
+    col = mix(col, vec3(0.), S(length(q) - maxR * cubicInOut(pres)));
+
+    // the amp zooms in with overshoot; each key bumps size and brightness
+    float pulse = sk_keypulse_envelope();
+    float fail = sk_fail_envelope();
+    float sc = IND_AMP * sk_ease_out_back(pres) * (1. + pulse * IND_BUMP);
+    if(sc < 1e-3) return col;
+    vec2 ap = q / sc;
+    float dj = sdJ(ap);
+    float dp = max(sdP(ap), PAD - dj);
+    vec3 ac = mix(ampGradient(ap), vec3(1.), pulse * IND_BRIGHT);
+    ac = mix(ac, sk_fail_color, fail);
+    return mix(col, ac, S(min(dj, dp) * sc));
+}
+
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
+    vec2 q = p;
 
     // global zoom-out (offset half a mode) plus the 3d wham zoom, centered
     // on a target orbiting off-screen so each zoom lands somewhere new
@@ -437,7 +462,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // noise coords, counter-scrolling slowly against the grid
     vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;
 
-    fragColor = vec4(render(p, tp), 1.0);
+    fragColor = vec4(keyIndicator(render(p, tp), q), 1.0);
 }
 
 // --- Qt entry point ---

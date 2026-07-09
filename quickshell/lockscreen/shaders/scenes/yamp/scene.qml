@@ -5,7 +5,7 @@ Item {
     property int frameCount: 0
     property var dummyTexture
     readonly property string authorText: "'yamp' by Flonk"
-    readonly property bool interactive: false
+    readonly property bool interactive: true
 
     Image { id: tex; source: "../assets/yamp_sdf.png"; visible: false }
     ShaderEffectSource { id: texSrc; sourceItem: tex; hideSource: true }
