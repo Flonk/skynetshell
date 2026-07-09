@@ -1,7 +1,19 @@
 import QtQuick
 import "../.."
-LockShaderPass {
+Item {
+    property var context
+    property int frameCount: 0
+    property var dummyTexture
     readonly property string authorText: "'yamp' by Flonk"
-    shaderName: "yamp"
-    interactive: false
+    readonly property bool interactive: false
+
+    Image { id: tex; source: "../assets/yamp_sdf.png"; visible: false }
+    ShaderEffectSource { id: texSrc; sourceItem: tex; hideSource: true }
+
+    LockShaderPass {
+        anchors.fill: parent
+        context: parent.context; frameCount: parent.frameCount; dummyTexture: parent.dummyTexture
+        shaderName: "yamp"
+        iChannel0: texSrc
+    }
 }
