@@ -6,7 +6,7 @@
 // out of the P, so the pieces stay separated even mid-spin.
 
 // --- knobs ------------------------------------------------------------------
-const float SPEED      = 0.5;   // global animation speed multiplier
+const float SPEED      = 0.25;   // global animation speed multiplier
 const float T_OFF1     = 5.0;   // off, long (dark grey)
 const float T_ROTATE   = 1.75;   // J/P fast 360 spin
 const float T_OFF2     = 2.0;   // off, short
