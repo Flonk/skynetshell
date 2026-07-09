@@ -44,7 +44,8 @@ const float PILE_BAND = 0.08;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
 
-const float SCROLL_VAR = 0.5;    // per-tile content scroll speed variance
+const float SCROLL_MIN = 0.045;  // tile content scroll speed, random per tile
+const float SCROLL_MAX = 0.09;
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
@@ -198,9 +199,10 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
     dw = max(sq.x, dw);
     col = mix(col, ampGradient(p), S(dw));
 
-    // 3d: spherical top-light shading across the whole tile
+    // 3d: spherical top-lit sheen — blend toward white above the equator
+    // and black below, so the dark tile body shades too
     float ny = sq.z * (1. - TILE_PAD + sq.x) / (1. - TILE_PAD);
-    col *= 1. + SPHERE_SHADE * ny * S(sq.x);
+    col = mix(col, vec3(step(0., ny)), abs(ny) * SPHERE_SHADE * S(sq.x));
     return col;
 }
 
@@ -219,7 +221,7 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     }
 
     if(nn<0.5){
-        p.y-=iTime*SCROLL*(1.+(nn*4.-1.)*SCROLL_VAR)+nn;
+        p.y-=iTime*mix(SCROLL_MIN, SCROLL_MAX, nn*2.)+nn;
         p*=1.2;
     } else {
         p*=1.2+pulseAnim(nn)*0.5;
