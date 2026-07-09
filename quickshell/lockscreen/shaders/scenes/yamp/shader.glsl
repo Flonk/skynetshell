@@ -8,23 +8,23 @@
 // like glass (DISTORT knobs).
 
 // --- knobs ------------------------------------------------------------------
-const float SPEED      = 0.125;  // global animation speed multiplier
+const float SPEED      = 1.0;    // global animation speed multiplier
 const float T_OFF1     = 5.0;   // off, long (dark grey)
-const float T_ROTATE   = 0.2915; // J/P fast 360 spin (6x faster)
+const float T_ROTATE   = 1.749; // J/P fast 360 spin
 const float T_OFF2     = 2.0;   // off, short
-const float T_FILL     = 0.184;  // duration of each white fill wipe (6x faster)
-const float T_FILL_LAG = 0.067; // P wipe starts this long after J wipe (6x faster)
+const float T_FILL     = 1.104;  // duration of each white fill wipe
+const float T_FILL_LAG = 0.067; // P wipe starts this long after J wipe
 const float T_ON       = 1.55;  // fully white hold
-const float T_UNFILL   = 0.134;  // wipes reverse out (6x faster)
+const float T_UNFILL   = 0.134;  // wipes reverse out
 const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
 const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
-const float SCROLL     = 0.075; // vertical scroll speed
+const float SCROLL     = 0.01; // vertical scroll speed
 
 const float SQUIRCLENESS = 0.5;   // tile shape: 0 = circle, 1 = square
 const float DISTORT      = 0.06;  // glass refraction strength at the tile rim
-const float DISTORT_BAND = 0.12;  // rim band that refracts (6x border width)
+const float DISTORT_BAND = 0.12;  // rim band that refracts
 
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
