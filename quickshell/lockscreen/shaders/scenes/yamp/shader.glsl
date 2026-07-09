@@ -30,7 +30,7 @@ const float DISTORT_BAND = 0.12;  // rim band that refracts
 const float TILE_PAD     = 0.1;   // squircle padding to its cell edge; the
                                   // horizon dies out within it, so cells of
                                   // different levels stay continuous
-const float SPHERE_SHADE = 0.1;   // 3d: brighten tile top / darken bottom
+const float SPHERE_SHADE = 0.15;   // 3d: brighten tile top / darken bottom
 
 const float DARKEN = 0.25;        // off-amp darkening per subdivision level
 
@@ -40,16 +40,30 @@ const float NOISE_SCALE = 3.0;   // background noise texture frequency
 const float BG_SPEED    = 0.3;   // background scroll, fraction of SCROLL
 const float STAR_BRIGHT = 0.7;   // starfield brightness
 
-const float PILE_BAND = 0.08;    // event-horizon falloff width (tile units)
+const float PILE_BAND = 0.1;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
 
 const float SCROLL_MIN = 0.045;  // tile content scroll speed, random per tile
 const float SCROLL_MAX = 0.09;
 
+// 2d/3d cycle: starts flat (border, no noise/stars/sheen/distortion), then
+// flips to the 3d planetscape and back every MODE_PERIOD. The global zoom
+// flips on the same period, offset by half — so the four quarters run
+// 2d-in, 2d-out, 3d-out, 3d-in.
+const float MODE_PERIOD = 40.;   // seconds per mode
+const float TRANS_DUR   = 1.2;   // flip transition duration
+const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
+const float ZOOM_OUT    = 0.30;  // global zoom-out amount
+const float RING_2D     = 0.3;   // 2d-mode border brightness
+
+const float BIG_ORANGE  = 0.015; // chance the huge amp is the orange one
+
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
 const vec3 GRAD_BOT = vec3(0.063, 0.596, 0.706);
+const vec3 ORANGE_TOP = vec3(0.96, 0.62, 0.30);
+const vec3 ORANGE_BOT = vec3(0.85, 0.42, 0.10);
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -71,6 +85,16 @@ float cubicInOut(float t) {
     ? 4.0 * t * t * t
     : 0.5 * pow(2.0 * t - 2.0, 3.0) + 1.0;
 }
+
+// alternates 0/1 every `period`, easing over TRANS_DUR at each flip;
+// block 0 (and anything before it) is 0
+float flipflop(float t, float period){
+    float k = floor(t/period);
+    float s = mod(k, 2.);
+    float prev = (k < 0.5) ? 0. : 1.-s;
+    return mix(prev, s, smoothstep(0., TRANS_DUR, t - k*period));
+}
+float mode3d(){ return flipflop(iTime, MODE_PERIOD); }
 
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
@@ -142,6 +166,9 @@ vec3 sdSquircle(vec2 p, float r, float n){
 vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
 }
+vec3 orangeGradient(vec2 p){
+    return mix(ORANGE_BOT, ORANGE_TOP, clamp(p.y + 0.5, 0., 1.));
+}
 
 // two-layer sparse starfield, points jittered within their grid cell
 float stars(vec2 p){
@@ -157,16 +184,21 @@ float stars(vec2 p){
     return v;
 }
 
-vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
+vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp, float orange){
+    float m3d = mode3d();
+
     // event horizon: outside the tile the noise and stars get sucked toward
     // the rim and pile up — this is both the background and the tile border.
-    // windowed to zero within TILE_PAD so neighbouring cells agree
+    // windowed to zero within TILE_PAD so neighbouring cells agree.
+    // in 2d mode the same falloff draws a plain border ring instead
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
     pull *= pull * smoothstep(TILE_PAD, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
-    float v = mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT;
-    vec3 col = mix(vec3(v * (1. + PILE_GAIN * pull)), vec3(0.), S(sq.x));
+    float v3 = (mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT)
+             * (1. + PILE_GAIN * pull);
+    float v = mix(RING_2D * pull, v3, m3d);
+    vec3 col = mix(vec3(v), vec3(0.), S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if (sq.x * iResolution.y > 1.5) return col;
@@ -187,8 +219,11 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
     float dp = max(sdP(pP), PAD - dj);            // P with the J carved out
     float dAmp = min(dj, dp) * AMP_SCALE;
     dAmp = max(sq.x, dAmp);
-    // grey base, darker per subdivision level (on-state fill stays bright)
-    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp));
+    // base, darker per subdivision level (on-state fill stays bright);
+    // the rare orange amp wears its gradient dimmed instead of grey
+    float shade = pow(1. - DARKEN, depth);
+    vec3 base = mix(vec3(0.3), orangeGradient(p)*0.55, orange);
+    col = mix(col, base * shade, S(dAmp));
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
@@ -197,12 +232,14 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, vec2 tp){
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
     float dw = min(wj, wp) * AMP_SCALE;
     dw = max(sq.x, dw);
-    col = mix(col, ampGradient(p), S(dw));
+    col = mix(col, mix(ampGradient(p), orangeGradient(p), orange), S(dw));
 
     // 3d: spherical top-lit sheen — blend toward white above the equator
-    // and black below, so the dark tile body shades too
+    // and black below, so the dark tile body shades too. scaled by the
+    // depth shade so darkened tiles stay visibly darker, and off in 2d
     float ny = sq.z * (1. - TILE_PAD + sq.x) / (1. - TILE_PAD);
-    col = mix(col, vec3(step(0., ny)), abs(ny) * SPHERE_SHADE * S(sq.x));
+    col = mix(col, vec3(step(0., ny)),
+              abs(ny) * SPHERE_SHADE * shade * m3d * S(sq.x));
     return col;
 }
 
@@ -211,13 +248,15 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     vec3 sq = sdSquircle(p, 1. - TILE_PAD, SQUIRCLENESS);
 
     // glass: inside the rim band the content is sampled outward along the
-    // squircle gradient, so the amps look refracted near the edge
+    // squircle gradient, so the amps look refracted near the edge (3d only)
     float lens = smoothstep(-DISTORT_BAND, 0., sq.x);
-    p += sq.yz * lens*lens * DISTORT;
+    p += sq.yz * lens*lens * DISTORT * mode3d();
 
-    // extra-large level: sometimes the whole cell is one huge ampersand
-    if(fract(nn*57.31) < BIG_CHANCE){
-        return drawAmp(p*0.5, nn+0.3, sq, depth, tp);
+    // extra-large level: sometimes the whole cell is one huge ampersand,
+    // very rarely the orange one
+    float big = fract(nn*57.31);
+    if(big < BIG_CHANCE){
+        return drawAmp(p*0.5, nn+0.3, sq, depth, tp, step(big, BIG_ORANGE));
     }
 
     if(nn<0.5){
@@ -250,7 +289,7 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
         depth += 1.;
     }
 
-    return drawAmp(gr, n2+nn, sq, depth, tp);
+    return drawAmp(gr, n2+nn, sq, depth, tp, 0.);
 }
 
 vec3 render(vec2 p, vec2 tp){
@@ -285,6 +324,10 @@ vec3 render(vec2 p, vec2 tp){
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
+
+    // global zoom-out (offset half a mode) plus the 3d wham zoom
+    float zo = flipflop(iTime + MODE_PERIOD*0.5, MODE_PERIOD);
+    p *= (1. + ZOOM_OUT*zo) * (1. + WHAM_ZOOM*mode3d());
 
     // noise coords, counter-scrolling slowly against the grid
     vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;
