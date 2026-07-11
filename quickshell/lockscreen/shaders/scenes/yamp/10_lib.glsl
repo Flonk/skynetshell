@@ -39,6 +39,14 @@ vec3 sdSquircle(vec2 p, float r, float n){
     return vec3(mix(lp - r, square, n), g);
 }
 
+// per-cell vortex swirl (otavio good's Spiral): rotational offset,
+// strongest at each cell center, scaled by amt
+vec2 spiral(vec2 uv, float amt){
+    vec2 d = fract(uv * 2.) - 0.5;
+    float blend = pow(clamp((0.5 - length(d)) * 2., 0., 1.), 1.5);
+    return uv + vec2(d.y, -d.x) * blend * amt;
+}
+
 // two-layer sparse starfield, points jittered within their grid cell
 float stars(vec2 p){
     float v = 0.;

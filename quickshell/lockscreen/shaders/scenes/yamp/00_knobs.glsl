@@ -30,6 +30,8 @@ const float T_REST     = 0.2;   // grey tail before the loop restarts
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
 const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
 const float SCROLL     = 0.03; // vertical scroll speed
+const float PAD_ZOOM   = 1.;   // how much tile content zooms out with the
+                               // pad (1 = match the planet's shrink, 0 = off)
 
 const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
 const float DISTORT_BAND = 0.12;  // rim band that refracts
@@ -63,6 +65,33 @@ const float RING_BRIGHT = 0.3;    // border ring brightness
 const float RING_WIDTH  = 0.0025; // border ring half-width, screen-height
                                   // units — same thickness at every level
 
+// 3d planet dressing (after Otavio Good's CC0 planet shader): a sun drifts
+// around the top; each tile gets a blinn-phong glint, domain-warped clouds
+// and an atmosphere ("aurora") tint on its event horizon. per-mode
+// strengths live in the mode table (spec/cloud/aur)
+const float SUN_PERIOD = 397.;   // sun azimuth drift period (s)
+const float SUN_SWING  = 0.9;    // sun azimuth swing amplitude
+const float SUN_HEIGHT = 1.8;    // sun elevation
+const float SUN_Z      = 0.7;    // sun toward-viewer component
+const vec3  SUN_COL    = vec3(1.66, 1.39, 0.87); // warm sun tint
+const vec3  SUN_WHITE  = vec3(1.31);             // mono-mode sun tint
+const float SPEC_POW   = 12.;    // glint tightness
+const float SPEC_GAIN  = 0.3;    // sun reflection strength
+
+const float CLOUD_SCALE = 1.1;   // cloud texture frequency (tile units)
+const float CLOUD_DRIFT = 0.012; // cloud scroll speed
+const float CLOUD_WARP  = 1.2;   // vortex swirl strength (x the blurry sample)
+const float CLOUD_SHARP = 0.8;   // contrast exponent (lower = denser)
+const float CLOUD_GAIN  = 3.;    // coverage boost after sharpening
+const float CLOUD_HEIGHT = 0.04; // shell height: shadow offset sunward (tile units)
+const float CLOUD_SHADOW = 0.75; // ground darkening under the cloud shell
+const float CLOUD_FADE   = 0.1;  // cloud thinning band at the shell edge (tile units)
+
+const vec3  AUR_COLOR   = vec3(0.15, 0.5, 1.0);  // atmosphere glow color
+const vec3  AUR_SUNSET  = vec3(1.9, 0.5, 0.08);  // sun-facing rim color
+const float AUR_SUN_POW = 1.;    // sunset concentration on the sun side
+const float AUR_GLOW    = 0.25;  // additive horizon glow strength
+
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
 // reverses everything
@@ -81,23 +110,31 @@ const vec3 GRAD_BOT = vec3(0.063, 0.596, 0.706);
 struct ModeParams {
     float pad;      // squircle padding to its cell edge
     float bg;       // background noise + stars visibility
-    float light;    // spherical shade: brighten tile top toward white
-    float dark;     // spherical shade: darken tile bottom toward black
+    float light;    // sun diffuse: lift on the sunlit side toward white
+    float dark;     // sun diffuse: shadow on the night side toward black
     float ring;     // border ring visibility (styled by RING_BRIGHT/RING_WIDTH)
     float distort;  // glass refraction strength at the tile rim
     float wham;     // extra global zoom-out
+    float spec;     // sun specular glint strength
+    float cloud;    // cloud coverage
+    float aur;      // aurora: atmosphere tint + glow on the event horizon
+    float warm;     // sun glint tint: 0 = SUN_WHITE, 1 = SUN_COL
 };
 
-const int MODE_COUNT = 2;
+// each step grows the pad and zooms in (wham) — visual complexity goes up,
+// so fewer but bigger planets. the event horizon dies out within the pad,
+// so cells of different levels stay continuous
+const int MODE_COUNT = 3;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm
     // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.),
-    // 3d: planetscape. the event horizon dies out within the pad, so cells
-    // of different levels stay continuous
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   0.05)
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.),
+    // 3d mono: starfield, white horizon (the old aurora), white sun
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.),
+    // 3d full: colored aurora, warm sun, clouds
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and

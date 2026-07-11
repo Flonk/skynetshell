@@ -9,6 +9,7 @@ ModeParams P;          // active params, filled per frame by sequenceModes()
 int   modeFrom  = 0;   // structural hooks branch on these
 int   modeTo    = 0;
 float modeBlend = 1.;  // eased from->to progress, 1 once settled
+float modeTime  = 0.;  // seconds into the current playlist block
 
 float modeDur(int i){ return DEV_MODE_DUR > 0. ? DEV_MODE_DUR : MODE_DUR[i]; }
 
@@ -17,7 +18,9 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
         mix(a.pad, b.pad, t), mix(a.bg, b.bg, t),
         mix(a.light, b.light, t), mix(a.dark, b.dark, t),
         mix(a.ring, b.ring, t), mix(a.distort, b.distort, t),
-        mix(a.wham, b.wham, t));
+        mix(a.wham, b.wham, t), mix(a.spec, b.spec, t),
+        mix(a.cloud, b.cloud, t), mix(a.aur, b.aur, t),
+        mix(a.warm, b.warm, t));
 }
 
 void sequenceModes(){
@@ -31,11 +34,20 @@ void sequenceModes(){
         if(c < acc + d){
             modeTo    = i;
             modeFrom  = (i + MODE_COUNT - 1) % MODE_COUNT;
-            modeBlend = smoothstep(0., TRANS_DUR, c - acc);
+            modeTime  = c - acc;
+            modeBlend = smoothstep(0., TRANS_DUR, modeTime);
             break;
         }
         acc += d;
     }
     if(t < modeDur(0)) modeFrom = modeTo;   // very first block: no flip-in
     P = mixParams(MODES[modeFrom], MODES[modeTo], modeBlend);
+
+    // clouds don't blend through transitions — the pad/zoom retune makes
+    // them slide. instead they fade in for TRANS_DUR after the transition
+    // lands, and fade out over the last TRANS_DUR before the next one
+    float d = modeDur(modeTo);
+    P.cloud = MODES[modeTo].cloud
+            * smoothstep(TRANS_DUR, 2.*TRANS_DUR, modeTime)
+            * (1. - smoothstep(d - TRANS_DUR, d, modeTime));
 }

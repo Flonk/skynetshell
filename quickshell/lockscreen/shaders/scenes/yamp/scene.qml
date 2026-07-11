@@ -11,6 +11,11 @@ Item {
     ShaderEffectSource { id: texSrc; sourceItem: tex; hideSource: true }
     Image { id: noise; source: "../assets/random.png"; visible: false }
     ShaderEffectSource { id: noiseSrc; sourceItem: noise; hideSource: true }
+    Image { id: cloudTex; source: "../assets/clouds_photo.jpg"; visible: false }
+    ShaderEffectSource {
+        id: cloudSrc; sourceItem: cloudTex; hideSource: true
+        wrapMode: ShaderEffectSource.Repeat
+    }
 
     LockShaderPass {
         anchors.fill: parent
@@ -18,5 +23,6 @@ Item {
         shaderName: "yamp"
         iChannel0: texSrc
         iChannel1: noiseSrc
+        iChannel2: cloudSrc
     }
 }
