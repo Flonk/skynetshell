@@ -12,6 +12,7 @@ pkgs.mkShell {
     OVMF.fd
     python3
     qemu
+    qt6.qtshadertools
     quickshell
     watchexec
     xorriso

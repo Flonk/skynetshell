@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 
 ShaderEffect {
     id: pass
@@ -13,7 +15,24 @@ ShaderEffect {
     // Paths resolve relative to the instantiating file (shell/shaders/scenes/),
     // not this component file, so we go up one level to shell/shaders/
     vertexShader: "../default.vert.qsb"
-    fragmentShader: shaderName ? "../" + shaderName + ".frag.qsb" : ""
+    fragmentShader: shaderName
+        ? "../" + shaderName + ".frag.qsb" + (_rev > 0 ? "?r=" + _rev : "")
+        : ""
+
+    // dev hot-reload (preview only): with $SHADER_DEV set, watch the compiled
+    // .qsb and bump the url query on change — Qt keys shader loads by full
+    // url, so the effect reloads in place; the query is dropped again when
+    // the url is resolved to a file path
+    property bool _dev: Quickshell.env("SHADER_DEV") === "1"
+    property int _rev: 0
+    FileView {
+        path: pass._dev && pass.shaderName
+            ? Qt.resolvedUrl("shaders/" + pass.shaderName + ".frag.qsb")
+                .toString().replace(/^file:\/\//, "")
+            : ""
+        watchChanges: true
+        onFileChanged: pass._rev++
+    }
 
     property vector3d iResolution: Qt.vector3d(width, height, 1.0)
     property real iTime: context ? context.elapsedTime : 0

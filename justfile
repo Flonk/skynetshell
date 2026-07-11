@@ -14,6 +14,26 @@ fmt:
 shaders:
     ./quickshell/lockscreen/convert-shaders.sh
 
+# Build a single lockscreen shader scene (much faster than all of them)
+shaders-one scene:
+    ONLY_SCENE={{scene}} ./quickshell/lockscreen/convert-shaders.sh
+
+# Preview one lockscreen shader in a floating window (no lock, no bar)
+preview scene="yamp":
+    just shaders-one {{scene}}
+    SHADER_SCENE={{scene}} quickshell --path ./quickshell/shell/preview.qml
+
+# Live-iterate a lockscreen shader: recompile on save; the preview window
+# hot-swaps the shader in place (LockShaderPass watches the .qsb when SHADER_DEV=1)
+dev-shader scene="yamp":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just shaders-one {{scene}}
+    watchexec -w ./quickshell/lockscreen/shaders/scenes/{{scene}} -e glsl -- \
+        just shaders-one {{scene}} &
+    trap 'kill $! 2>/dev/null' EXIT
+    SHADER_DEV=1 SHADER_SCENE={{scene}} quickshell --path ./quickshell/shell/preview.qml
+
 # Clean compiled shaders
 shaders-clean:
     rm -rf ./quickshell/shell/shaders/
