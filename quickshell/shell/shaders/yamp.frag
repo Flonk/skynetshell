@@ -132,7 +132,6 @@ const float T_UNFILL   = 1.;  // wipes reverse out
 const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
-const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
 const float SCROLL     = 0.03; // vertical scroll speed
 const float PAD_ZOOM   = 1.;   // how much tile content zooms out with the
                                // pad (1 = match the planet's shrink, 0 = off)
@@ -242,6 +241,22 @@ const float ATMO_BASE   = 0.12;  // constant atmosphere veil over the disc
 const float ATMO_HAZE   = 0.45;  // limb haze: extra tint at the rim
 const float ATMO_POW    = 2.;    // haze concentration toward the limb
 
+// warhol mode: tiles become flat pop-color squares, no pad, no borders.
+// each square hashes a palette color and a normal/inverted flip; the fill
+// wipe becomes a pulse with a gradient tail — transparent toward the seed,
+// solid at the wavefront. normal = black bg, amps printed in the color,
+// pulsing to black; inverted = color bg, black amps, pulsing to
+// color*WARHOL_FILL. colors are oklch-matched to the andamp blue (same
+// lightness/chroma, rotated hue)
+const vec3 WARHOL_COLS[4] = vec3[4](
+    vec3(0.138, 0.633, 0.717),   // andamp blue
+    vec3(0.768, 0.456, 0.581),   // pink
+    vec3(0.482, 0.619, 0.336),   // lime
+    vec3(0.764, 0.495, 0.304));  // orange
+const float WARHOL_INV  = 0.5;   // chance a square is inverted
+const float WARHOL_FILL = 1.2;   // pulse brightness x the base color (inverted)
+const float PULSE_W     = 0.35;  // pulse gradient tail width (glyph units)
+
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
 // reverses everything
@@ -273,28 +288,35 @@ struct ModeParams {
                     // high-terrain fills, water-only glint
     float neb;      // kaliset nebula visibility in the background
     float star;     // starfield density (scales the brightness power law)
+    float squir;    // tile squareness on top of SQUIRCLENESS (1 = square)
+    float warhol;   // pop-palette strength (per-square colors + inversion)
+    float big;      // chance a cell promotes to one huge amp
 };
 
 // each step grows the pad and zooms in (wham) — visual complexity goes up,
 // so fewer but bigger planets. the event horizon dies out within the pad,
 // so cells of different levels stay continuous
-const int MODE_COUNT = 3;
+const int MODE_COUNT = 5;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra neb  star
-    // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.),
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra neb  star squir warhol big
+    // 2d base: flat — border ring, no noise/stars/shade/distortion
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   0.,  0.,  0.15),
     // 3d mono: sparse starfield, white horizon (the old aurora), white sun
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.,   0.,  0.25),
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.,   0.,  0.25, 0.,  0.,  0.15),
     // 3d full: colored aurora, warm sun, clouds, ocean + terrain, nebula
-    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.,   1.,  3.)
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.,   1.,  3.,   0.,  0.,  0.15),
+    // back to base before the pop hits
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   0.,  0.,  0.15),
+    // warhol: flat pop-color squares, normal/inverted per tile, more bigs
+    ModeParams(0.,   0., 0.,   0.,   0.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   1.,  1.,  0.85)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480., 480., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
 // DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
-const float DEV_MODE_OFFSET = 0.;
-const float DEV_MODE_DUR    = 4.;
+const float DEV_MODE_OFFSET = 1920.;
+const float DEV_MODE_DUR    = 0.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -402,7 +424,9 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
         mix(a.wham, b.wham, t), mix(a.spec, b.spec, t),
         mix(a.cloud, b.cloud, t), mix(a.aur, b.aur, t),
         mix(a.warm, b.warm, t), mix(a.terra, b.terra, t),
-        mix(a.neb, b.neb, t), mix(a.star, b.star, t));
+        mix(a.neb, b.neb, t), mix(a.star, b.star, t),
+        mix(a.squir, b.squir, t), mix(a.warhol, b.warhol, t),
+        mix(a.big, b.big, t));
 }
 
 void sequenceModes(){
@@ -441,6 +465,8 @@ vec3  SUN = vec3(0., 0.7, 0.7);   // sun direction, set in mainImage —
                                   // drives the glint and the aurora
 float gCoast = 0.;  // coastline fbm amplitude for sdJ/sdP; set in
                     // mainImage for the scene, zeroed for the indicator
+vec3  gPop = vec3(0.);  // warhol: this tile's pop color, set in quadTree
+float gInv = 0.;        // warhol: 1 = inverted tile
 
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
@@ -499,6 +525,14 @@ float fillAnim(float frame, float start){
     return 0.;
 }
 
+// wipe progress for the warhol pulse: parked negative before the wipe (the
+// annulus is imaginary), eased across, then parked past the glyph — so the
+// on/unfill phases read as settled black with no retiming
+float pulseWipe(float frame, float start){
+    if(frame < start) return -1.;
+    return cubicInOut(min((frame - start)/T_FILL, 1.));
+}
+
 // brand gradient across the glyph (glyph space spans y in [-0.5,0.5])
 vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
@@ -531,8 +565,10 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
 
     // content clip at the rim: fades out fully AT the rim so nothing leaks
     // through the border ring's outer AA, which is wider in screen space
-    // than the local-unit glyph edges
-    float rim = S(sqs + 1.3/iResolution.y);
+    // than the local-unit glyph edges. in warhol (pad 0, no ring) the clip
+    // flips outward instead, so the print runs flush to the square's edge —
+    // the inset otherwise leaves a bg-colored grout line between tiles
+    float rim = S(sqs + 1.3/iResolution.y * (1. - 2.*P.warhol));
 
     // the cloud sphere is CLOUD_HEIGHT larger than the ground, so clouds
     // overhang the limb; its rim clip sits that much further out, and the
@@ -546,7 +582,7 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     // border in one. windowed to zero within the pad so neighbouring cells
     // agree
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
-    pull *= pull * smoothstep(P.pad, 0., sq.x);
+    pull *= pull * smoothstep(max(P.pad, 1e-3), 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
     vec3 base = vec3(mix(NOISE_LO, NOISE_HI, nse)) + stars(tps, P.star) * STAR_BRIGHT;
@@ -568,8 +604,11 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     vec3 aurTint = mix(vec3(1.), mix(AUR_COLOR, AUR_SUNSET, sunset), P.aur);
     vec3 v3 = vec3(base)
             + (base * PILE_GAIN + AUR_GLOW * pull * P.aur) * pull * aurTint;
-    // tile interior: black, becoming ocean in terra mode
+    // tile interior: black, becoming ocean in terra mode, or the pop color
+    // on inverted warhol tiles — unclipped, so zero-pad squares meet with
+    // no dark seam at the shared edge
     vec3 col = mix(v3 * P.bg, WATER_COL * P.terra, S(sq.x));
+    col = mix(col, gPop * tshade, P.warhol * gInv);
 
     // outside pixels are done — skip both glyph SDFs entirely
     if ((sqs - shell) * iResolution.y > 1.5) return col;
@@ -614,11 +653,13 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     }
 
     // grey base, darker per subdivision level; in terra mode: a sand ring
-    // at the waterline, detail-modulated specked lowland inside
+    // at the waterline, detail-modulated specked lowland inside. warhol:
+    // the print color (black on inverted tiles), same depth shading
     vec3 terrLand = mix(SAND_COL, mix(LAND_COL * dmod, SPECK_COL, spk),
                         smoothstep(0., -SAND_W, dAmp));
-    col = mix(col, mix(vec3(0.3), terrLand, P.terra) * pow(1. - DARKEN, depth),
-              S(dAmp) * rim);
+    vec3 ampBase = mix(vec3(0.3), terrLand, P.terra);
+    ampBase = mix(ampBase, gPop * (1. - gInv), P.warhol);
+    col = mix(col, ampBase * pow(1. - DARKEN, depth), S(dAmp) * rim);
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
@@ -628,12 +669,30 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     float dw = min(wj, wp) * ampScale + cw;   // same terra softening
     dw = max(sq.x, dw);
     // brand-gradient fill; in terra mode snow-covered high terrain with a
-    // thin rock rim, detail mottling toned down on the snow
+    // thin rock rim, detail mottling toned down on the snow. suppressed in
+    // warhol — the pulse below takes over
     vec3 fillCol = mix(ampGradient(p),
                        mix(HIGH_BOT, HIGH_TOP, smoothstep(0., -SNOW_D, dw))
                        * mix(1., dmod, SNOW_DETAIL),
                        P.terra);
-    col = mix(col, fillCol, S(dw) * rim);
+    col = mix(col, fillCol, S(dw) * rim * (1. - P.warhol));
+
+    // warhol: the fill wipe becomes a pulse with a gradient tail —
+    // transparent toward the seed, solid at the wavefront — sweeping across
+    // the glyph and out past its rim, so the on/unfill phases read as
+    // settled. inverted tiles pulse brightened color over black amps;
+    // normal tiles pulse black over the printed color
+    if(P.warhol > 0.001){
+        float rj = pulseWipe(frame, FILLJ_START) * (RJ + 1.5*PULSE_W);
+        float rp = pulseWipe(frame, FILLP_START) * (RP + 1.5*PULSE_W);
+        float lj = length(pJ - SEED_J), lp = length(pP - SEED_P);
+        float aj = S(max(sq.x, max(dj, lj - rj) * ampScale))
+                 * smoothstep(rj - PULSE_W, rj, lj);
+        float ap = S(max(sq.x, max(dp, lp - rp) * ampScale))
+                 * smoothstep(rp - PULSE_W, rp, lp);
+        col = mix(col, mix(vec3(0.), gPop * WARHOL_FILL * tshade, gInv),
+                  max(aj, ap) * rim * P.warhol);
+    }
 
     // emboss: terrain slopes facing the sun brighten, away-facing darken,
     // strongest right at coasts and ridges. the SDF gradients come from
@@ -688,7 +747,11 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
 
 vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p*=2.;
-    vec3 sq = sdSquircle(p, 1. - P.pad, SQUIRCLENESS);
+    vec3 sq = sdSquircle(p, 1. - P.pad, mix(SQUIRCLENESS, 1., P.squir));
+
+    // warhol identity: each tile hashes a palette color and an invert flip
+    gPop = WARHOL_COLS[int(min(fract(nn*13.7)*4., 3.))];
+    gInv = step(fract(nn*29.3), WARHOL_INV);
 
     // glass: inside the rim band the content is sampled outward along the
     // squircle gradient, so the amps look refracted near the edge
@@ -704,7 +767,7 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p *= zf;
 
     // extra-large level: sometimes the whole cell is one huge ampersand
-    if(fract(nn*57.31) < BIG_CHANCE){
+    if(fract(nn*57.31) < P.big){
         return drawAmp(p*0.5, nn+0.3, sq, depth, depth, tp, tlp);
     }
 

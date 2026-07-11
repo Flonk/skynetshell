@@ -21,7 +21,9 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
         mix(a.wham, b.wham, t), mix(a.spec, b.spec, t),
         mix(a.cloud, b.cloud, t), mix(a.aur, b.aur, t),
         mix(a.warm, b.warm, t), mix(a.terra, b.terra, t),
-        mix(a.neb, b.neb, t), mix(a.star, b.star, t));
+        mix(a.neb, b.neb, t), mix(a.star, b.star, t),
+        mix(a.squir, b.squir, t), mix(a.warhol, b.warhol, t),
+        mix(a.big, b.big, t));
 }
 
 void sequenceModes(){

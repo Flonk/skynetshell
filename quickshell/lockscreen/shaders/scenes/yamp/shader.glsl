@@ -6,6 +6,8 @@ vec3  SUN = vec3(0., 0.7, 0.7);   // sun direction, set in mainImage —
                                   // drives the glint and the aurora
 float gCoast = 0.;  // coastline fbm amplitude for sdJ/sdP; set in
                     // mainImage for the scene, zeroed for the indicator
+vec3  gPop = vec3(0.);  // warhol: this tile's pop color, set in quadTree
+float gInv = 0.;        // warhol: 1 = inverted tile
 
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
@@ -64,6 +66,14 @@ float fillAnim(float frame, float start){
     return 0.;
 }
 
+// wipe progress for the warhol pulse: parked negative before the wipe (the
+// annulus is imaginary), eased across, then parked past the glyph — so the
+// on/unfill phases read as settled black with no retiming
+float pulseWipe(float frame, float start){
+    if(frame < start) return -1.;
+    return cubicInOut(min((frame - start)/T_FILL, 1.));
+}
+
 // brand gradient across the glyph (glyph space spans y in [-0.5,0.5])
 vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
@@ -96,8 +106,10 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
 
     // content clip at the rim: fades out fully AT the rim so nothing leaks
     // through the border ring's outer AA, which is wider in screen space
-    // than the local-unit glyph edges
-    float rim = S(sqs + 1.3/iResolution.y);
+    // than the local-unit glyph edges. in warhol (pad 0, no ring) the clip
+    // flips outward instead, so the print runs flush to the square's edge —
+    // the inset otherwise leaves a bg-colored grout line between tiles
+    float rim = S(sqs + 1.3/iResolution.y * (1. - 2.*P.warhol));
 
     // the cloud sphere is CLOUD_HEIGHT larger than the ground, so clouds
     // overhang the limb; its rim clip sits that much further out, and the
@@ -111,7 +123,7 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     // border in one. windowed to zero within the pad so neighbouring cells
     // agree
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
-    pull *= pull * smoothstep(P.pad, 0., sq.x);
+    pull *= pull * smoothstep(max(P.pad, 1e-3), 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
     vec3 base = vec3(mix(NOISE_LO, NOISE_HI, nse)) + stars(tps, P.star) * STAR_BRIGHT;
@@ -133,8 +145,11 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     vec3 aurTint = mix(vec3(1.), mix(AUR_COLOR, AUR_SUNSET, sunset), P.aur);
     vec3 v3 = vec3(base)
             + (base * PILE_GAIN + AUR_GLOW * pull * P.aur) * pull * aurTint;
-    // tile interior: black, becoming ocean in terra mode
+    // tile interior: black, becoming ocean in terra mode, or the pop color
+    // on inverted warhol tiles — unclipped, so zero-pad squares meet with
+    // no dark seam at the shared edge
     vec3 col = mix(v3 * P.bg, WATER_COL * P.terra, S(sq.x));
+    col = mix(col, gPop * tshade, P.warhol * gInv);
 
     // outside pixels are done — skip both glyph SDFs entirely
     if ((sqs - shell) * iResolution.y > 1.5) return col;
@@ -179,11 +194,13 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     }
 
     // grey base, darker per subdivision level; in terra mode: a sand ring
-    // at the waterline, detail-modulated specked lowland inside
+    // at the waterline, detail-modulated specked lowland inside. warhol:
+    // the print color (black on inverted tiles), same depth shading
     vec3 terrLand = mix(SAND_COL, mix(LAND_COL * dmod, SPECK_COL, spk),
                         smoothstep(0., -SAND_W, dAmp));
-    col = mix(col, mix(vec3(0.3), terrLand, P.terra) * pow(1. - DARKEN, depth),
-              S(dAmp) * rim);
+    vec3 ampBase = mix(vec3(0.3), terrLand, P.terra);
+    ampBase = mix(ampBase, gPop * (1. - gInv), P.warhol);
+    col = mix(col, ampBase * pow(1. - DARKEN, depth), S(dAmp) * rim);
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
@@ -193,12 +210,30 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     float dw = min(wj, wp) * ampScale + cw;   // same terra softening
     dw = max(sq.x, dw);
     // brand-gradient fill; in terra mode snow-covered high terrain with a
-    // thin rock rim, detail mottling toned down on the snow
+    // thin rock rim, detail mottling toned down on the snow. suppressed in
+    // warhol — the pulse below takes over
     vec3 fillCol = mix(ampGradient(p),
                        mix(HIGH_BOT, HIGH_TOP, smoothstep(0., -SNOW_D, dw))
                        * mix(1., dmod, SNOW_DETAIL),
                        P.terra);
-    col = mix(col, fillCol, S(dw) * rim);
+    col = mix(col, fillCol, S(dw) * rim * (1. - P.warhol));
+
+    // warhol: the fill wipe becomes a pulse with a gradient tail —
+    // transparent toward the seed, solid at the wavefront — sweeping across
+    // the glyph and out past its rim, so the on/unfill phases read as
+    // settled. inverted tiles pulse brightened color over black amps;
+    // normal tiles pulse black over the printed color
+    if(P.warhol > 0.001){
+        float rj = pulseWipe(frame, FILLJ_START) * (RJ + 1.5*PULSE_W);
+        float rp = pulseWipe(frame, FILLP_START) * (RP + 1.5*PULSE_W);
+        float lj = length(pJ - SEED_J), lp = length(pP - SEED_P);
+        float aj = S(max(sq.x, max(dj, lj - rj) * ampScale))
+                 * smoothstep(rj - PULSE_W, rj, lj);
+        float ap = S(max(sq.x, max(dp, lp - rp) * ampScale))
+                 * smoothstep(rp - PULSE_W, rp, lp);
+        col = mix(col, mix(vec3(0.), gPop * WARHOL_FILL * tshade, gInv),
+                  max(aj, ap) * rim * P.warhol);
+    }
 
     // emboss: terrain slopes facing the sun brighten, away-facing darken,
     // strongest right at coasts and ridges. the SDF gradients come from
@@ -253,7 +288,11 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
 
 vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p*=2.;
-    vec3 sq = sdSquircle(p, 1. - P.pad, SQUIRCLENESS);
+    vec3 sq = sdSquircle(p, 1. - P.pad, mix(SQUIRCLENESS, 1., P.squir));
+
+    // warhol identity: each tile hashes a palette color and an invert flip
+    gPop = WARHOL_COLS[int(min(fract(nn*13.7)*4., 3.))];
+    gInv = step(fract(nn*29.3), WARHOL_INV);
 
     // glass: inside the rim band the content is sampled outward along the
     // squircle gradient, so the amps look refracted near the edge
@@ -269,7 +308,7 @@ vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p *= zf;
 
     // extra-large level: sometimes the whole cell is one huge ampersand
-    if(fract(nn*57.31) < BIG_CHANCE){
+    if(fract(nn*57.31) < P.big){
         return drawAmp(p*0.5, nn+0.3, sq, depth, depth, tp, tlp);
     }
 

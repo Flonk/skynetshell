@@ -28,7 +28,6 @@ const float T_UNFILL   = 1.;  // wipes reverse out
 const float T_REST     = 0.2;   // grey tail before the loop restarts
 
 const float AMP_SCALE  = 0.94;  // glyph size within its tile
-const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
 const float SCROLL     = 0.03; // vertical scroll speed
 const float PAD_ZOOM   = 1.;   // how much tile content zooms out with the
                                // pad (1 = match the planet's shrink, 0 = off)
@@ -138,6 +137,22 @@ const float ATMO_BASE   = 0.12;  // constant atmosphere veil over the disc
 const float ATMO_HAZE   = 0.45;  // limb haze: extra tint at the rim
 const float ATMO_POW    = 2.;    // haze concentration toward the limb
 
+// warhol mode: tiles become flat pop-color squares, no pad, no borders.
+// each square hashes a palette color and a normal/inverted flip; the fill
+// wipe becomes a pulse with a gradient tail — transparent toward the seed,
+// solid at the wavefront. normal = black bg, amps printed in the color,
+// pulsing to black; inverted = color bg, black amps, pulsing to
+// color*WARHOL_FILL. colors are oklch-matched to the andamp blue (same
+// lightness/chroma, rotated hue)
+const vec3 WARHOL_COLS[4] = vec3[4](
+    vec3(0.138, 0.633, 0.717),   // andamp blue
+    vec3(0.768, 0.456, 0.581),   // pink
+    vec3(0.482, 0.619, 0.336),   // lime
+    vec3(0.764, 0.495, 0.304));  // orange
+const float WARHOL_INV  = 0.5;   // chance a square is inverted
+const float WARHOL_FILL = 1.2;   // pulse brightness x the base color (inverted)
+const float PULSE_W     = 0.35;  // pulse gradient tail width (glyph units)
+
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
 // reverses everything
@@ -169,28 +184,35 @@ struct ModeParams {
                     // high-terrain fills, water-only glint
     float neb;      // kaliset nebula visibility in the background
     float star;     // starfield density (scales the brightness power law)
+    float squir;    // tile squareness on top of SQUIRCLENESS (1 = square)
+    float warhol;   // pop-palette strength (per-square colors + inversion)
+    float big;      // chance a cell promotes to one huge amp
 };
 
 // each step grows the pad and zooms in (wham) — visual complexity goes up,
 // so fewer but bigger planets. the event horizon dies out within the pad,
 // so cells of different levels stay continuous
-const int MODE_COUNT = 3;
+const int MODE_COUNT = 5;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra neb  star
-    // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.),
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra neb  star squir warhol big
+    // 2d base: flat — border ring, no noise/stars/shade/distortion
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   0.,  0.,  0.15),
     // 3d mono: sparse starfield, white horizon (the old aurora), white sun
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.,   0.,  0.25),
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.,   0.,  0.25, 0.,  0.,  0.15),
     // 3d full: colored aurora, warm sun, clouds, ocean + terrain, nebula
-    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.,   1.,  3.)
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.,   1.,  3.,   0.,  0.,  0.15),
+    // back to base before the pop hits
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   0.,  0.,  0.15),
+    // warhol: flat pop-color squares, normal/inverted per tile, more bigs
+    ModeParams(0.,   0., 0.,   0.,   0.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   1.,  1.,  0.85)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480., 480., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
 // DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
-const float DEV_MODE_OFFSET = 0.;
-const float DEV_MODE_DUR    = 4.;
+const float DEV_MODE_OFFSET = 1920.;
+const float DEV_MODE_DUR    = 0.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
