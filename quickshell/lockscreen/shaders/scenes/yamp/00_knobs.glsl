@@ -1,9 +1,9 @@
 // yamp: yasuo quadtree scene, X glyphs replaced by the and& ampersand.
 // The build (convert-shaders.sh) concatenates NN_*.glsl in order, then
 // shader.glsl:
-//   00_knobs  — every scene-wide tuning constant
+//   00_knobs  — every tuning constant, incl. the mode table and playlist
 //   10_lib    — generic helpers (rng, easing, squircle, stars)
-//   20_modes  — ModeParams table, playlist, dev knobs, sequencer
+//   20_modes  — mode sequencer machinery, structural-mode hooks
 //   shader    — the scene: amp SDFs, quadtree, key indicator, mainImage
 //
 // Per tile, on its own clock (speed n*2*SPEED), the loop runs:
@@ -32,12 +32,7 @@ const float BIG_CHANCE = 0.15;  // chance a cell promotes to one huge amp
 const float SCROLL     = 0.03; // vertical scroll speed
 
 const float SQUIRCLENESS = 0.;   // tile shape: 0 = circle, 1 = square
-const float DISTORT      = 0.12;  // glass refraction strength at the tile rim
 const float DISTORT_BAND = 0.12;  // rim band that refracts
-const float TILE_PAD     = 0.15;   // squircle padding to its cell edge; the
-                                  // horizon dies out within it, so cells of
-                                  // different levels stay continuous
-const float SPHERE_SHADE = 0.15;   // 3d: brighten tile top / darken bottom
 
 const float DARKEN = 0.25;        // off-amp darkening per subdivision level
 
@@ -59,14 +54,14 @@ const float SCROLL_MAX = 0.09;
 // quarters run 2d-in, 2d-out, 3d-out, 3d-in
 const float TRANS_DUR   = 1.2;   // mode/zoom flip transition duration
 const float ZOOM_PERIOD = 60. * 8.; // seconds per zoom flip
-const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
 const float ZOOM_OUT    = 0.30;  // global zoom-out amount
 const float ZOOM_ECC    = 5.7;   // zoom target distance from screen center
 const float ZOOM_DRIFT  = 2300.7;  // zoom target orbit period (s) — offbeat
                                  // vs ZOOM_PERIOD so the spot always differs
-const float RING_2D     = 0.3;   // 2d-mode border brightness
-const float BORDER_2D   = 0.01;  // 2d-mode border half-width
-const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
+
+const float RING_BRIGHT = 0.3;    // border ring brightness
+const float RING_WIDTH  = 0.0025; // border ring half-width, screen-height
+                                  // units — same thickness at every level
 
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
@@ -79,6 +74,36 @@ const float IND_LAG    = 0.08;   // circle leads the amp by this, in and out
 // and& brand gradient, sampled from andamp-amp-blue.png (top -> bottom)
 const vec3 GRAD_TOP = vec3(0.212, 0.671, 0.729);
 const vec3 GRAD_BOT = vec3(0.063, 0.596, 0.706);
+
+// --- modes -------------------------------------------------------------------
+// a mode is one ModeParams entry in the playlist below; the sequencer
+// (20_modes) walks it, easing between neighbours over TRANS_DUR
+struct ModeParams {
+    float pad;      // squircle padding to its cell edge
+    float bg;       // background noise + stars visibility
+    float light;    // spherical shade: brighten tile top toward white
+    float dark;     // spherical shade: darken tile bottom toward black
+    float ring;     // border ring visibility (styled by RING_BRIGHT/RING_WIDTH)
+    float distort;  // glass refraction strength at the tile rim
+    float wham;     // extra global zoom-out
+};
+
+const int MODE_COUNT = 2;
+const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
+    //         pad   bg  light dark  ring distort wham
+    // 2d: flat — border ring, no noise/stars/shade/distortion
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.),
+    // 3d: planetscape. the event horizon dies out within the pad, so cells
+    // of different levels stay continuous
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   0.05)
+);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480.);
+
+// dev knobs: skip ahead in the schedule (seconds) / override every mode's
+// duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
+// DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
+const float DEV_MODE_OFFSET = 0.;
+const float DEV_MODE_DUR    = 4.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;

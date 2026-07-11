@@ -2,6 +2,9 @@
 // 20_modes.glsl for the mode system. All mode-dependent values come from
 // the global P; nothing here asks which mode is active.
 
+float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
+                    // screen->tile-local distance scale
+
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
@@ -60,6 +63,15 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     float ny = clamp(sq.z * (1. - P.pad + sq.x) / (1. - P.pad), -1., 1.);
     float tshade = pow(1. - DARKEN, tileDepth);
 
+    // tile distance in screen-height units: undo the zoom, the two fixed
+    // x2 grid scales and the tile's subdivision levels
+    float sqs = sq.x / (4. * exp2(tileDepth) * gZoom);
+
+    // content clip at the rim: fades out fully AT the rim so nothing leaks
+    // through the border ring's outer AA, which is wider in screen space
+    // than the local-unit glyph edges
+    float rim = S(sqs + 1.3/iResolution.y);
+
     // event horizon (3d): outside the tile the noise and stars get sucked
     // toward the rim and pile up into a bright horizon — background and tile
     // border in one. windowed to zero within the pad so neighbouring cells
@@ -73,7 +85,7 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     vec3 col = mix(vec3(v3) * P.bg, vec3(0.), S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
-    if (sq.x * iResolution.y > 1.5) return col;
+    if (sqs * iResolution.y > 1.5) return col;
 
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
     p /= AMP_SCALE;
@@ -92,7 +104,7 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     float dAmp = min(dj, dp) * AMP_SCALE;
     dAmp = max(sq.x, dAmp);
     // grey base, darker per subdivision level
-    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp));
+    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp) * rim);
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
@@ -101,17 +113,20 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
     float dw = min(wj, wp) * AMP_SCALE;
     dw = max(sq.x, dw);
-    col = mix(col, ampGradient(p), S(dw));
+    col = mix(col, ampGradient(p), S(dw) * rim);
 
-    // spherical top-lit sheen — blend toward white above the equator and
-    // black below. scaled by the TILE's depth shade (never the per-amp one,
-    // which would break the gradient inside a tile); P.sheen is 0 in 2d
-    col = mix(col, vec3(step(0., ny)),
-              abs(ny) * P.sheen * tshade * S(sq.x));
+    // spherical top-lit shade — lift the top toward white, shadow the
+    // bottom toward black. the lift is scaled by the TILE's depth shade
+    // (never the per-amp one, which would break the gradient inside a
+    // tile); the shadow is relative, so it reads the same at every depth
+    col = mix(col, vec3(1.), max( ny, 0.) * P.light * tshade * S(sq.x));
+    col = mix(col, vec3(0.), max(-ny, 0.) * P.dark * S(sq.x));
 
-    // hard border ring on the rim; P.ring is 0 in 3d
-    float dring = abs(sq.x + BORDER_2D) - BORDER_2D;
-    col = mix(col, vec3(RING_2D), S(dring) * P.ring);
+    // hard border ring on the rim, gated by P.ring. drawn on the
+    // screen-space distance so every level gets the same thickness, and
+    // darkened per subdivision level like the amps
+    float dring = abs(sqs + RING_WIDTH) - RING_WIDTH;
+    col = mix(col, vec3(RING_BRIGHT) * tshade, S(dring) * P.ring);
     return col;
 }
 
@@ -231,7 +246,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float zo = flipflop(iTime + ZOOM_PERIOD*0.5, ZOOM_PERIOD);
     float ang = 6.2831853 * iTime / ZOOM_DRIFT;
     vec2 zc = ZOOM_ECC * vec2(cos(ang), sin(ang));
-    p = zc + (p - zc) * (1. + ZOOM_OUT*zo) * (1. + P.wham);
+    gZoom = (1. + ZOOM_OUT*zo) * (1. + P.wham);
+    p = zc + (p - zc) * gZoom;
 
     // noise coords, counter-scrolling slowly against the grid
     vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;
