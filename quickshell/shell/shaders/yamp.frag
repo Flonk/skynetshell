@@ -102,7 +102,14 @@ float sk_attention_envelope() { return sk_attention_envelope_at(iTime); }
 // ---------------------------------------------------------------------------
 // Shader body follows (injected by convert-shaders.sh)
 // ---------------------------------------------------------------------------
-// yasuo quadtree scene, X glyphs replaced by the and& ampersand.
+// yamp: yasuo quadtree scene, X glyphs replaced by the and& ampersand.
+// The build (convert-shaders.sh) concatenates NN_*.glsl in order, then
+// shader.glsl:
+//   00_knobs  — every scene-wide tuning constant
+//   10_lib    — generic helpers (rng, easing, squircle, stars)
+//   20_modes  — ModeParams table, playlist, dev knobs, sequencer
+//   shader    — the scene: amp SDFs, quadtree, key indicator, mainImage
+//
 // Per tile, on its own clock (speed n*2*SPEED), the loop runs:
 //   off (long) -> rotate (J/P counter-spin 360) -> off (short)
 //   -> fill J (gradient wipe) -> fill P (offset wipe) -> on -> unfill -> loop
@@ -151,17 +158,16 @@ const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
 const float SCROLL_MIN = 0.045;  // tile content scroll speed, random per tile
 const float SCROLL_MAX = 0.09;
 
-// 2d/3d cycle: starts flat (border, no noise/stars/sheen/distortion), then
-// flips to the 3d planetscape and back every MODE_PERIOD. The global zoom
-// flips on the same period, offset by half — so the four quarters run
-// 2d-in, 2d-out, 3d-out, 3d-in.
-const float MODE_PERIOD = 60. * 8.;   // seconds per mode
-const float TRANS_DUR   = 1.2;   // flip transition duration
+// mode transitions ease over TRANS_DUR; the global zoom flips on ZOOM_PERIOD,
+// offset by half — tuned so with the default two-mode playlist the four
+// quarters run 2d-in, 2d-out, 3d-out, 3d-in
+const float TRANS_DUR   = 1.2;   // mode/zoom flip transition duration
+const float ZOOM_PERIOD = 60. * 8.; // seconds per zoom flip
 const float WHAM_ZOOM   = 0.05;  // extra zoom-out in 3d mode
 const float ZOOM_OUT    = 0.30;  // global zoom-out amount
 const float ZOOM_ECC    = 5.7;   // zoom target distance from screen center
 const float ZOOM_DRIFT  = 2300.7;  // zoom target orbit period (s) — offbeat
-                                 // vs MODE_PERIOD so the spot always differs
+                                 // vs ZOOM_PERIOD so the spot always differs
 const float RING_2D     = 0.3;   // 2d-mode border brightness
 const float BORDER_2D   = 0.01;  // 2d-mode border half-width
 const float TILE_PAD_2D = 0.01;  // tile padding in 2d mode
@@ -185,7 +191,7 @@ const float FILLP_START  = FILLJ_START + T_FILL_LAG;
 const float ON_START     = FILLP_START + T_FILL;
 const float UNFILL_START = ON_START + T_ON;
 const float LOOP_LEN     = UNFILL_START + T_UNFILL + T_REST;
-
+// --- generic helpers ---------------------------------------------------------
 #define Rot(a) mat2(cos(a),-sin(a),sin(a),cos(a))
 #define S(d) (1.-smoothstep(-1.3,1.3, (d)*iResolution.y ))
 
@@ -207,7 +213,105 @@ float flipflop(float t, float period){
     float prev = (k < 0.5) ? 0. : 1.-s;
     return mix(prev, s, smoothstep(0., TRANS_DUR, t - k*period));
 }
-float mode3d(){ return flipflop(iTime, MODE_PERIOD); }
+
+vec2 rotAround(vec2 p, vec2 c, float a){ return (p-c)*Rot(a)+c; }
+
+// squircle tile: circle/rounded-box mix (Hyeve, shadertoy) — a true SDF,
+// unlike the superellipse. Returns (distance, gradient); the gradient is
+// the same mix of both shapes' gradients (mix is linear, so it's exact).
+vec3 sdSquircle(vec2 p, float r, float n){
+    float lp = max(length(p), 1e-6);
+    vec2 q = abs(p) - n*r;
+    vec2 mq = max(q, 0.);
+    float lmq = length(mq);
+    float square = min(max(q.x,q.y),0.) + lmq - (r - n*r);
+    vec2 gsq = (lmq > 1e-6) ? sign(p)*mq/lmq
+             : ((q.x > q.y) ? vec2(sign(p.x),0.) : vec2(0.,sign(p.y)));
+    vec2 g = mix(p/lp, gsq, n);
+    g /= max(length(g), 1e-6);
+    return vec3(mix(lp - r, square, n), g);
+}
+
+// two-layer sparse starfield, points jittered within their grid cell
+float stars(vec2 p){
+    float v = 0.;
+    for(int i = 0; i < 2; i++){
+        vec2 g = p * (6. + 5.*float(i)) + float(i)*3.7;
+        vec2 id = floor(g);
+        vec2 f = fract(g) - 0.5;
+        float rn = random(id);
+        vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5)*0.7;
+        v += smoothstep(0.06, 0., length(f - off)) * step(0.9, rn) * fract(rn*91.17);
+    }
+    return v;
+}
+// --- modes -------------------------------------------------------------------
+// A mode is a point in ModeParams space. The sequencer walks the MODES
+// playlist and eases the global P between neighbours over TRANS_DUR at each
+// boundary — so any mode expressible as parameters transitions for free.
+// Structural modes (different traversal/tile content) branch on
+// modeFrom/modeTo/modeBlend instead; keep those branches rare.
+
+struct ModeParams {
+    float pad;      // squircle padding to its cell edge
+    float bg;       // background noise + stars visibility
+    float sheen;    // spherical top-lit shading strength
+    float ring;     // hard rim ring (2d border) visibility, 0..1
+    float distort;  // glass refraction strength at the tile rim
+    float wham;     // extra global zoom-out
+};
+
+const int MODE_COUNT = 2;
+const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
+    // 2d: flat — border ring, no noise/stars/sheen/distortion
+    ModeParams(TILE_PAD_2D, 0., 0.,           1., 0.,      0.),
+    // 3d: planetscape
+    ModeParams(TILE_PAD,    1., SPHERE_SHADE, 0., DISTORT, WHAM_ZOOM)
+);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480.);
+
+// dev knobs: skip ahead in the schedule (seconds) / override every mode's
+// duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
+// DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
+const float DEV_MODE_OFFSET = 0.;
+const float DEV_MODE_DUR    = 0.;
+
+ModeParams P;          // active params, filled per frame by sequenceModes()
+int   modeFrom  = 0;   // structural hooks branch on these
+int   modeTo    = 0;
+float modeBlend = 1.;  // eased from->to progress, 1 once settled
+
+float modeDur(int i){ return DEV_MODE_DUR > 0. ? DEV_MODE_DUR : MODE_DUR[i]; }
+
+ModeParams mixParams(ModeParams a, ModeParams b, float t){
+    return ModeParams(
+        mix(a.pad, b.pad, t), mix(a.bg, b.bg, t), mix(a.sheen, b.sheen, t),
+        mix(a.ring, b.ring, t), mix(a.distort, b.distort, t),
+        mix(a.wham, b.wham, t));
+}
+
+void sequenceModes(){
+    float t = iTime + DEV_MODE_OFFSET;
+    float total = 0.;
+    for(int i = 0; i < MODE_COUNT; i++) total += modeDur(i);
+    float c = mod(t, total);
+    float acc = 0.;
+    for(int i = 0; i < MODE_COUNT; i++){
+        float d = modeDur(i);
+        if(c < acc + d){
+            modeTo    = i;
+            modeFrom  = (i + MODE_COUNT - 1) % MODE_COUNT;
+            modeBlend = smoothstep(0., TRANS_DUR, c - acc);
+            break;
+        }
+        acc += d;
+    }
+    if(t < modeDur(0)) modeFrom = modeTo;   // very first block: no flip-in
+    P = mixParams(MODES[modeFrom], MODES[modeTo], modeBlend);
+}
+// yamp scene body — see 00_knobs.glsl for the full scene description and
+// 20_modes.glsl for the mode system. All mode-dependent values come from
+// the global P; nothing here asks which mode is active.
 
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
@@ -257,49 +361,14 @@ float fillAnim(float frame, float start){
     return 0.;
 }
 
-vec2 rotAround(vec2 p, vec2 c, float a){ return (p-c)*Rot(a)+c; }
-
-// squircle tile: circle/rounded-box mix (Hyeve, shadertoy) — a true SDF,
-// unlike the superellipse. Returns (distance, gradient); the gradient is
-// the same mix of both shapes' gradients (mix is linear, so it's exact).
-vec3 sdSquircle(vec2 p, float r, float n){
-    float lp = max(length(p), 1e-6);
-    vec2 q = abs(p) - n*r;
-    vec2 mq = max(q, 0.);
-    float lmq = length(mq);
-    float square = min(max(q.x,q.y),0.) + lmq - (r - n*r);
-    vec2 gsq = (lmq > 1e-6) ? sign(p)*mq/lmq
-             : ((q.x > q.y) ? vec2(sign(p.x),0.) : vec2(0.,sign(p.y)));
-    vec2 g = mix(p/lp, gsq, n);
-    g /= max(length(g), 1e-6);
-    return vec3(mix(lp - r, square, n), g);
-}
-
 // brand gradient across the glyph (glyph space spans y in [-0.5,0.5])
 vec3 ampGradient(vec2 p){
     return mix(GRAD_BOT, GRAD_TOP, clamp(p.y + 0.5, 0., 1.));
 }
 
-// two-layer sparse starfield, points jittered within their grid cell
-float stars(vec2 p){
-    float v = 0.;
-    for(int i = 0; i < 2; i++){
-        vec2 g = p * (6. + 5.*float(i)) + float(i)*3.7;
-        vec2 id = floor(g);
-        vec2 f = fract(g) - 0.5;
-        float rn = random(id);
-        vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5)*0.7;
-        v += smoothstep(0.06, 0., length(f - off)) * step(0.9, rn) * fract(rn*91.17);
-    }
-    return v;
-}
-
 vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
-    float m3d = mode3d();
-    float pad = mix(TILE_PAD_2D, TILE_PAD, m3d);
-
     // spherical vertical coordinate (+1 top rim .. -1 bottom)
-    float ny = clamp(sq.z * (1. - pad + sq.x) / (1. - pad), -1., 1.);
+    float ny = clamp(sq.z * (1. - P.pad + sq.x) / (1. - P.pad), -1., 1.);
     float tshade = pow(1. - DARKEN, tileDepth);
 
     // event horizon (3d): outside the tile the noise and stars get sucked
@@ -307,12 +376,12 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     // border in one. windowed to zero within the pad so neighbouring cells
     // agree
     float pull = PILE_BAND / (max(sq.x, 0.) + PILE_BAND);
-    pull *= pull * smoothstep(pad, 0., sq.x);
+    pull *= pull * smoothstep(P.pad, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
     float v3 = (mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT)
              * (1. + PILE_GAIN * pull);
-    vec3 col = mix(vec3(v3) * m3d, vec3(0.), S(sq.x));
+    vec3 col = mix(vec3(v3) * P.bg, vec3(0.), S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if (sq.x * iResolution.y > 1.5) return col;
@@ -345,26 +414,26 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp){
     dw = max(sq.x, dw);
     col = mix(col, ampGradient(p), S(dw));
 
-    // 3d: spherical top-lit sheen — blend toward white above the equator
-    // and black below. scaled by the TILE's depth shade (never the per-amp
-    // one, which would break the gradient inside a tile), and off in 2d
+    // spherical top-lit sheen — blend toward white above the equator and
+    // black below. scaled by the TILE's depth shade (never the per-amp one,
+    // which would break the gradient inside a tile); P.sheen is 0 in 2d
     col = mix(col, vec3(step(0., ny)),
-              abs(ny) * SPHERE_SHADE * tshade * m3d * S(sq.x));
+              abs(ny) * P.sheen * tshade * S(sq.x));
 
-    // 2d mode: hard border ring on the rim
+    // hard border ring on the rim; P.ring is 0 in 3d
     float dring = abs(sq.x + BORDER_2D) - BORDER_2D;
-    col = mix(col, vec3(RING_2D), S(dring) * (1. - m3d));
+    col = mix(col, vec3(RING_2D), S(dring) * P.ring);
     return col;
 }
 
 vec3 quadTree(vec2 p, float nn, float depth, vec2 tp){
     p*=2.;
-    vec3 sq = sdSquircle(p, 1. - mix(TILE_PAD_2D, TILE_PAD, mode3d()), SQUIRCLENESS);
+    vec3 sq = sdSquircle(p, 1. - P.pad, SQUIRCLENESS);
 
     // glass: inside the rim band the content is sampled outward along the
-    // squircle gradient, so the amps look refracted near the edge (3d only)
+    // squircle gradient, so the amps look refracted near the edge
     float lens = smoothstep(-DISTORT_BAND, 0., sq.x);
-    p += sq.yz * lens*lens * DISTORT * mode3d();
+    p += sq.yz * lens*lens * P.distort;
 
     // extra-large level: sometimes the whole cell is one huge ampersand
     if(fract(nn*57.31) < BIG_CHANCE){
@@ -463,15 +532,17 @@ vec3 keyIndicator(vec3 col, vec2 q){
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
+    sequenceModes();
+
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
     vec2 q = p;
 
-    // global zoom-out (offset half a mode) plus the 3d wham zoom, centered
+    // global zoom-out (offset half a period) plus the wham zoom, centered
     // on a target orbiting off-screen so each zoom lands somewhere new
-    float zo = flipflop(iTime + MODE_PERIOD*0.5, MODE_PERIOD);
+    float zo = flipflop(iTime + ZOOM_PERIOD*0.5, ZOOM_PERIOD);
     float ang = 6.2831853 * iTime / ZOOM_DRIFT;
     vec2 zc = ZOOM_ECC * vec2(cos(ang), sin(ang));
-    p = zc + (p - zc) * (1. + ZOOM_OUT*zo) * (1. + WHAM_ZOOM*mode3d());
+    p = zc + (p - zc) * (1. + ZOOM_OUT*zo) * (1. + P.wham);
 
     // noise coords, counter-scrolling slowly against the grid
     vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;

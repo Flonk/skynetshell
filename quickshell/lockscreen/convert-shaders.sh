@@ -3,6 +3,8 @@
 #
 # Usage: ./convert-shaders.sh [qsb-path]
 #   qsb-path defaults to "qsb" on PATH.
+#   ONLY_SCENE=<name>  compile just that one scene (still refreshes default.vert
+#                      and assets, which are cheap and shared).
 
 set -euo pipefail
 
@@ -34,16 +36,21 @@ for scene_dir in "$SHADER_SRC"/*/; do
     shader="$scene_dir/shader.glsl"
 
     if [ ! -f "$shader" ]; then continue; fi
+    if [ -n "${ONLY_SCENE:-}" ] && [ "$name" != "$ONLY_SCENE" ]; then continue; fi
 
     output_frag="$OUTPUT_DIR/$name.frag"
     output_qsb="$OUTPUT_DIR/$name.frag.qsb"
 
-    # Helper: build and compile a single .frag from preamble + body + main wrapper
+    # Helper: build and compile a single .frag from preamble + body parts + main wrapper
     compile_pass() {
-        local body="$1" out_frag="$2" out_qsb="$3" label="$4"
+        local out_frag="$1" out_qsb="$2" label="$3"
+        shift 3
 
         cp "$PREAMBLE" "$out_frag"
-        sed -E '/^#version/d; /^precision\s+/d' "$body" >> "$out_frag"
+        local body
+        for body in "$@"; do
+            sed -E '/^#version/d; /^precision\s+/d' "$body" >> "$out_frag"
+        done
         cat >> "$out_frag" << 'WRAPPER'
 
 // --- Qt entry point ---
@@ -71,15 +78,20 @@ WRAPPER
         buf_name=$(basename "$buf" .glsl)
         buf_frag="$OUTPUT_DIR/${name}_${buf_name}.frag"
         buf_qsb="$OUTPUT_DIR/${name}_${buf_name}.frag.qsb"
-        if compile_pass "$buf" "$buf_frag" "$buf_qsb" "${name}/${buf_name}"; then
+        if compile_pass "$buf_frag" "$buf_qsb" "${name}/${buf_name}" "$buf"; then
             ok=$((ok + 1))
         else
             fail=$((fail + 1))
         fi
     done
 
-    # Compile main (image) pass
-    if compile_pass "$shader" "$output_frag" "$output_qsb" "$name"; then
+    # Compile main (image) pass: sorted NN_*.glsl parts first, shader.glsl last
+    body_parts=()
+    for part in "$scene_dir"/[0-9][0-9]_*.glsl; do
+        [ -f "$part" ] && body_parts+=("$part")
+    done
+    body_parts+=("$shader")
+    if compile_pass "$output_frag" "$output_qsb" "$name" "${body_parts[@]}"; then
         ok=$((ok + 1))
     else
         fail=$((fail + 1))
@@ -92,6 +104,7 @@ mkdir -p "$SCENES_DST"
 scenes=0
 for scene_dir in "$SHADER_SRC"/*/; do
     name=$(basename "$scene_dir")
+    if [ -n "${ONLY_SCENE:-}" ] && [ "$name" != "$ONLY_SCENE" ]; then continue; fi
     if [ -f "$scene_dir/scene.qml" ]; then
         cp "$scene_dir/scene.qml" "$SCENES_DST/$name.qml"
         scenes=$((scenes + 1))
