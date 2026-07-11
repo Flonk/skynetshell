@@ -6,6 +6,8 @@ float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
                     // screen->tile-local distance scale
 vec3  SUN = vec3(0., 0.7, 0.7);   // sun direction, set in mainImage —
                                   // drives the glint and the aurora
+float gCoast = 0.;  // coastline fbm amplitude for sdJ/sdP; set in
+                    // mainImage for the scene, zeroed for the indicator
 
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
@@ -20,23 +22,32 @@ float pulseAnim(float n){
 }
 
 // --- and& ampersand: baked SDF texture (gen_sdf.py) -------------------------
-// iChannel0: R = J piece, G = P piece, glyph space [-SDF_BOX,SDF_BOX]^2
-// (v flipped), distances clamped to +-SDF_RANGE/2
+// iChannel0: R = J piece, G = P piece, B = glyph-space coastline fbm,
+// glyph space [-SDF_BOX,SDF_BOX]^2 (v flipped), distances clamped to
+// +-SDF_RANGE/2. The fbm is summed onto the distances (amplitude gCoast),
+// sampled at the same uv — so the wobble is constant in the glyph frame
+// and rotates/scales with each piece
 const float PAD = 0.0464;      // design gap, measured from the artwork
 const float SDF_BOX   = 0.75;
 const float SDF_RANGE = 0.25;
 
+// the early-out branches return far + SDF_RANGE — clear of every coast
+// band, so the switch never re-enters shelf/relief range (it used to sit
+// at ~0.05, painting a phantom circular coastline around each amp). the
+// max() keeps the field growing past the texture's clamp plateau
 float sdJ(vec2 p) {
     float far = length(p) - 0.57;   // J fits in radius 0.554
-    if (far > 0.05) return far;
+    if (far > 0.05) return far + SDF_RANGE;
     vec2 uv = vec2(p.x, -p.y)/(2.0*SDF_BOX) + 0.5;
-    return (texture(iChannel0, uv).r - 0.5) * SDF_RANGE;
+    vec4 t = texture(iChannel0, uv);
+    return max((t.r - 0.5) * SDF_RANGE + (t.b - 0.5) * gCoast, far);
 }
 float sdP(vec2 p) {
     float far = length(p) - 0.66;   // P fits in radius 0.646
-    if (far > 0.09) return far;
+    if (far > 0.09) return far + SDF_RANGE;
     vec2 uv = vec2(p.x, -p.y)/(2.0*SDF_BOX) + 0.5;
-    return (texture(iChannel0, uv).g - 0.5) * SDF_RANGE;
+    vec4 t = texture(iChannel0, uv);
+    return max((t.g - 0.5) * SDF_RANGE + (t.b - 0.5) * gCoast, far);
 }
 
 // --- ampersand tile animation ----------------------------------------------
@@ -115,13 +126,17 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     vec3 aurTint = mix(vec3(1.), mix(AUR_COLOR, AUR_SUNSET, sunset), P.aur);
     vec3 v3 = vec3(base)
             + (base * PILE_GAIN + AUR_GLOW * pull * P.aur) * pull * aurTint;
-    vec3 col = mix(v3 * P.bg, vec3(0.), S(sq.x));
+    // tile interior: black, becoming ocean in terra mode
+    vec3 col = mix(v3 * P.bg, WATER_COL * P.terra, S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if ((sqs - shell) * iResolution.y > 1.5) return col;
 
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
-    p /= AMP_SCALE;
+    // terra: pad the amps within their cells so the coast bands get room
+    // before the cell boundary
+    float ampScale = AMP_SCALE * (1. - AMP_PAD * P.terra);
+    p /= ampScale;
 
     // rotate state: J and P counter-spin a full turn
     vec2 pJ = p, pP = p;
@@ -134,19 +149,61 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
 
     float dj = sdJ(pJ);
     float dp = max(sdP(pP), PAD - dj);            // P with the J carved out
-    float dAmp = min(dj, dp) * AMP_SCALE;
+    float dAmp = min(dj, dp) * ampScale;
+
+    // terra: soften the glyphs — a constant inset rounds the 90° corners
+    float cw = -CORNER_ROUND * P.terra;
+    dAmp += cw;
     dAmp = max(sq.x, dAmp);
-    // grey base, darker per subdivision level
-    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp) * rim);
+    // terra: detail mottling, dirt specks (a spiral-distorted cloud-texture
+    // lookup), and a shallow shelf on the water approaching a coast (the
+    // land overdraws its inside half)
+    float dmod = 1., spk = 0., cellW = 1.;
+    if(P.terra > 0.001){
+        float det = texture(iChannel2, tlp * DETAIL_SCALE + 0.37).g;
+        dmod = 1. + (det - 0.5) * DETAIL_AMT;
+        spk = texture(iChannel2, spiral(tlp * SPECK_SCALE + 0.71, SPECK_WARP)).r;
+        spk = smoothstep(SPECK_LO, SPECK_HI, spk * spk) * SPECK_AMT;
+        // cell-edge window: coast bands die out before the amp cell
+        // boundary so neighbouring cells agree (the horizon-pad trick)
+        cellW = smoothstep(0., COAST_W, 0.5/ampScale - max(abs(p.x), abs(p.y)));
+        col = mix(col, WATER_SHALL,
+                  smoothstep(COAST_W, 0., dAmp) * cellW * rim * P.terra);
+    }
+
+    // grey base, darker per subdivision level; in terra mode: a sand ring
+    // at the waterline, detail-modulated specked lowland inside
+    vec3 terrLand = mix(SAND_COL, mix(LAND_COL * dmod, SPECK_COL, spk),
+                        smoothstep(0., -SAND_W, dAmp));
+    col = mix(col, mix(vec3(0.3), terrLand, P.terra) * pow(1. - DARKEN, depth),
+              S(dAmp) * rim);
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
     float fp = fillAnim(frame, FILLP_START);
     float wj = max(dj, length(pJ-SEED_J) - (fj*(RJ+0.02)-0.02));
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
-    float dw = min(wj, wp) * AMP_SCALE;
+    float dw = min(wj, wp) * ampScale + cw;   // same terra softening
     dw = max(sq.x, dw);
-    col = mix(col, ampGradient(p), S(dw) * rim);
+    // brand-gradient fill; in terra mode snow-covered high terrain with a
+    // thin rock rim, detail mottling toned down on the snow
+    vec3 fillCol = mix(ampGradient(p),
+                       mix(HIGH_BOT, HIGH_TOP, smoothstep(0., -SNOW_D, dw))
+                       * mix(1., dmod, SNOW_DETAIL),
+                       P.terra);
+    col = mix(col, fillCol, S(dw) * rim);
+
+    // emboss: terrain slopes facing the sun brighten, away-facing darken,
+    // strongest right at coasts and ridges. the SDF gradients come from
+    // screen derivatives (y flipped back to scene orientation)
+    if(P.terra > 0.001){
+        vec2 sxy = normalize(SUN.xy);
+        vec2 gc = vec2(dFdx(dAmp), -dFdy(dAmp));
+        vec2 gr_ = vec2(dFdx(dw),  -dFdy(dw));
+        float rel = dot(normalize(gc + 1e-5), sxy) * smoothstep(RELIEF_W, 0., abs(dAmp))
+                  + dot(normalize(gr_ + 1e-5), sxy) * smoothstep(RELIEF_W, 0., abs(dw));
+        col *= 1. + rel * RELIEF * P.terra * rim * cellW;
+    }
 
     // clouds, drawn before the shade so they get lit and shadowed too.
     // toy-planet height: the ground is darkened by the cloud shell sunward
@@ -168,10 +225,16 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     col = mix(col, vec3(0.), max(-dif, 0.) * P.dark * S(sq.x));
 
     // sun glint: blinn-phong specular on the fake sphere normal, over
-    // everything under the glass
+    // everything under the glass; in terra mode only the water reflects
     vec3 H = normalize(SUN + vec3(0., 0., 1.));
     col += mix(SUN_WHITE, SUN_COL, P.warm)
-         * pow(max(dot(N, H), 0.), SPEC_POW) * SPEC_GAIN * P.spec * rim;
+         * pow(max(dot(N, H), 0.), SPEC_POW) * SPEC_GAIN * P.spec * rim
+         * (1. - S(dAmp) * rim * P.terra);
+
+    // atmospheric haze: a constant veil over the whole disc, plus more
+    // toward the limb where the view ray crosses more air (N.z -> 0)
+    float haze = (ATMO_BASE + pow(1. - N.z, ATMO_POW) * ATMO_HAZE) * P.aur;
+    col = mix(col, HAZE_COL, haze * S(sq.x));
 
     // hard border ring on the rim, gated by P.ring. drawn on the
     // screen-space distance so every level gets the same thickness, and
@@ -300,6 +363,7 @@ vec3 keyIndicator(vec3 col, vec2 q){
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     sequenceModes();
+    gCoast = COASTF_AMT * P.terra;
 
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
     vec2 q = p;
@@ -320,5 +384,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // noise coords, counter-scrolling slowly against the grid
     vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;
 
-    fragColor = vec4(keyIndicator(render(p, tp), q), 1.0);
+    vec3 col = render(p, tp);
+    gCoast = 0.;   // the key indicator keeps clean brand glyphs
+    fragColor = vec4(keyIndicator(col, q), 1.0);
 }

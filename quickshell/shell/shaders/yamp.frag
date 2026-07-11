@@ -191,10 +191,44 @@ const float CLOUD_HEIGHT = 0.04; // shell height: shadow offset sunward (tile un
 const float CLOUD_SHADOW = 0.75; // ground darkening under the cloud shell
 const float CLOUD_FADE   = 0.1;  // cloud thinning band at the shell edge (tile units)
 
+// full-planet terrain (terra field): the tile interior becomes ocean, the
+// amps land, the filled amps high terrain; the sun then only reflects off
+// the water. the amp SDFs double as height fields: distance to the coast
+// drives shelves/beaches/snowlines, and its gradient drives the emboss
+const vec3 WATER_COL   = vec3(0.02, 0.09, 0.18); // deep ocean
+const vec3 WATER_SHALL = vec3(0.05, 0.22, 0.28); // shallow shelf at coasts
+const float COAST_W    = 0.06;  // shallow shelf width (amp units) — must
+                                // stay inside the SDF clamp (~0.07 usable)
+const vec3 SAND_COL    = vec3(0.55, 0.47, 0.26); // beach ring
+const float SAND_W     = 0.035; // beach ring width
+const vec3 LAND_COL    = vec3(0.10, 0.19, 0.11); // low terrain (amps), muted
+const vec3 HIGH_BOT    = vec3(0.45, 0.32, 0.18); // high terrain: rim rock...
+const vec3 HIGH_TOP    = vec3(0.95, 0.95, 0.90); // ...to snowfields
+const float SNOW_D     = 0.05;  // rock-to-snow rim width (amp units)
+const float SNOW_DETAIL = 0.35; // how much detail mottling shows on snow
+const float DETAIL_SCALE = 5.;  // terrain detail texture frequency
+const float DETAIL_AMT   = 0.6; // terrain detail brightness modulation
+const vec3  SPECK_COL  = vec3(0.30, 0.20, 0.10); // lowland dirt specks
+const float SPECK_SCALE = 3.7;  // speck texture frequency
+const float SPECK_WARP  = 1.5;  // speck spiral distortion
+const float SPECK_LO    = 0.25; // speck threshold window (squared sample)
+const float SPECK_HI    = 0.55;
+const float SPECK_AMT   = 0.8;  // speck opacity on the lowland
+const float CORNER_ROUND = 0.02; // round off sharp glyph corners (amp units)
+const float COASTF_AMT   = 0.05; // baked coastline fbm amplitude (amp units)
+const float AMP_PAD      = 0.25; // shrink amps within their cells so the
+                                 // coast bands fit before the cell boundary
+const float RELIEF     = 0.4;   // emboss strength at coasts/ridges (negative flips)
+const float RELIEF_W   = 0.05;  // emboss band width (amp units), zero beyond
+
 const vec3  AUR_COLOR   = vec3(0.15, 0.5, 1.0);  // atmosphere glow color
 const vec3  AUR_SUNSET  = vec3(1.9, 0.5, 0.08);  // sun-facing rim color
 const float AUR_SUN_POW = 1.;    // sunset concentration on the sun side
 const float AUR_GLOW    = 0.25;  // additive horizon glow strength
+const vec3  HAZE_COL    = vec3(0.45, 0.60, 0.85); // haze tint, desaturated
+const float ATMO_BASE   = 0.12;  // constant atmosphere veil over the disc
+const float ATMO_HAZE   = 0.45;  // limb haze: extra tint at the rim
+const float ATMO_POW    = 2.;    // haze concentration toward the limb
 
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
@@ -223,6 +257,8 @@ struct ModeParams {
     float cloud;    // cloud coverage
     float aur;      // aurora: atmosphere tint + glow on the event horizon
     float warm;     // sun glint tint: 0 = SUN_WHITE, 1 = SUN_COL
+    float terra;    // terrain palette: ocean interior, land amps,
+                    // high-terrain fills, water-only glint
 };
 
 // each step grows the pad and zooms in (wham) — visual complexity goes up,
@@ -230,21 +266,21 @@ struct ModeParams {
 // so cells of different levels stay continuous
 const int MODE_COUNT = 3;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra
     // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.),
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.),
     // 3d mono: starfield, white horizon (the old aurora), white sun
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.),
-    // 3d full: colored aurora, warm sun, clouds
-    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.)
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.),
+    // 3d full: colored aurora, warm sun, clouds, ocean + terrain
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](0., 0., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
 // DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
 const float DEV_MODE_OFFSET = 0.;
-const float DEV_MODE_DUR    = 4.;
+const float DEV_MODE_DUR    = 0.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -337,7 +373,7 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
         mix(a.ring, b.ring, t), mix(a.distort, b.distort, t),
         mix(a.wham, b.wham, t), mix(a.spec, b.spec, t),
         mix(a.cloud, b.cloud, t), mix(a.aur, b.aur, t),
-        mix(a.warm, b.warm, t));
+        mix(a.warm, b.warm, t), mix(a.terra, b.terra, t));
 }
 
 void sequenceModes(){
@@ -376,6 +412,8 @@ float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
                     // screen->tile-local distance scale
 vec3  SUN = vec3(0., 0.7, 0.7);   // sun direction, set in mainImage —
                                   // drives the glint and the aurora
+float gCoast = 0.;  // coastline fbm amplitude for sdJ/sdP; set in
+                    // mainImage for the scene, zeroed for the indicator
 
 // tile zoom pulse: up during rotate, hold, down during unfill
 float pulseAnim(float n){
@@ -390,23 +428,32 @@ float pulseAnim(float n){
 }
 
 // --- and& ampersand: baked SDF texture (gen_sdf.py) -------------------------
-// iChannel0: R = J piece, G = P piece, glyph space [-SDF_BOX,SDF_BOX]^2
-// (v flipped), distances clamped to +-SDF_RANGE/2
+// iChannel0: R = J piece, G = P piece, B = glyph-space coastline fbm,
+// glyph space [-SDF_BOX,SDF_BOX]^2 (v flipped), distances clamped to
+// +-SDF_RANGE/2. The fbm is summed onto the distances (amplitude gCoast),
+// sampled at the same uv — so the wobble is constant in the glyph frame
+// and rotates/scales with each piece
 const float PAD = 0.0464;      // design gap, measured from the artwork
 const float SDF_BOX   = 0.75;
 const float SDF_RANGE = 0.25;
 
+// the early-out branches return far + SDF_RANGE — clear of every coast
+// band, so the switch never re-enters shelf/relief range (it used to sit
+// at ~0.05, painting a phantom circular coastline around each amp). the
+// max() keeps the field growing past the texture's clamp plateau
 float sdJ(vec2 p) {
     float far = length(p) - 0.57;   // J fits in radius 0.554
-    if (far > 0.05) return far;
+    if (far > 0.05) return far + SDF_RANGE;
     vec2 uv = vec2(p.x, -p.y)/(2.0*SDF_BOX) + 0.5;
-    return (texture(iChannel0, uv).r - 0.5) * SDF_RANGE;
+    vec4 t = texture(iChannel0, uv);
+    return max((t.r - 0.5) * SDF_RANGE + (t.b - 0.5) * gCoast, far);
 }
 float sdP(vec2 p) {
     float far = length(p) - 0.66;   // P fits in radius 0.646
-    if (far > 0.09) return far;
+    if (far > 0.09) return far + SDF_RANGE;
     vec2 uv = vec2(p.x, -p.y)/(2.0*SDF_BOX) + 0.5;
-    return (texture(iChannel0, uv).g - 0.5) * SDF_RANGE;
+    vec4 t = texture(iChannel0, uv);
+    return max((t.g - 0.5) * SDF_RANGE + (t.b - 0.5) * gCoast, far);
 }
 
 // --- ampersand tile animation ----------------------------------------------
@@ -485,13 +532,17 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     vec3 aurTint = mix(vec3(1.), mix(AUR_COLOR, AUR_SUNSET, sunset), P.aur);
     vec3 v3 = vec3(base)
             + (base * PILE_GAIN + AUR_GLOW * pull * P.aur) * pull * aurTint;
-    vec3 col = mix(v3 * P.bg, vec3(0.), S(sq.x));
+    // tile interior: black, becoming ocean in terra mode
+    vec3 col = mix(v3 * P.bg, WATER_COL * P.terra, S(sq.x));
 
     // outside pixels are done — skip both glyph SDFs entirely
     if ((sqs - shell) * iResolution.y > 1.5) return col;
 
     float frame = mod(iTime*n*2.*SPEED, LOOP_LEN);
-    p /= AMP_SCALE;
+    // terra: pad the amps within their cells so the coast bands get room
+    // before the cell boundary
+    float ampScale = AMP_SCALE * (1. - AMP_PAD * P.terra);
+    p /= ampScale;
 
     // rotate state: J and P counter-spin a full turn
     vec2 pJ = p, pP = p;
@@ -504,19 +555,61 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
 
     float dj = sdJ(pJ);
     float dp = max(sdP(pP), PAD - dj);            // P with the J carved out
-    float dAmp = min(dj, dp) * AMP_SCALE;
+    float dAmp = min(dj, dp) * ampScale;
+
+    // terra: soften the glyphs — a constant inset rounds the 90° corners
+    float cw = -CORNER_ROUND * P.terra;
+    dAmp += cw;
     dAmp = max(sq.x, dAmp);
-    // grey base, darker per subdivision level
-    col = mix(col, vec3(0.3) * pow(1. - DARKEN, depth), S(dAmp) * rim);
+    // terra: detail mottling, dirt specks (a spiral-distorted cloud-texture
+    // lookup), and a shallow shelf on the water approaching a coast (the
+    // land overdraws its inside half)
+    float dmod = 1., spk = 0., cellW = 1.;
+    if(P.terra > 0.001){
+        float det = texture(iChannel2, tlp * DETAIL_SCALE + 0.37).g;
+        dmod = 1. + (det - 0.5) * DETAIL_AMT;
+        spk = texture(iChannel2, spiral(tlp * SPECK_SCALE + 0.71, SPECK_WARP)).r;
+        spk = smoothstep(SPECK_LO, SPECK_HI, spk * spk) * SPECK_AMT;
+        // cell-edge window: coast bands die out before the amp cell
+        // boundary so neighbouring cells agree (the horizon-pad trick)
+        cellW = smoothstep(0., COAST_W, 0.5/ampScale - max(abs(p.x), abs(p.y)));
+        col = mix(col, WATER_SHALL,
+                  smoothstep(COAST_W, 0., dAmp) * cellW * rim * P.terra);
+    }
+
+    // grey base, darker per subdivision level; in terra mode: a sand ring
+    // at the waterline, detail-modulated specked lowland inside
+    vec3 terrLand = mix(SAND_COL, mix(LAND_COL * dmod, SPECK_COL, spk),
+                        smoothstep(0., -SAND_W, dAmp));
+    col = mix(col, mix(vec3(0.3), terrLand, P.terra) * pow(1. - DARKEN, depth),
+              S(dAmp) * rim);
 
     // fill states: brand-gradient wipes clipped inside each piece
     float fj = fillAnim(frame, FILLJ_START);
     float fp = fillAnim(frame, FILLP_START);
     float wj = max(dj, length(pJ-SEED_J) - (fj*(RJ+0.02)-0.02));
     float wp = max(dp, length(pP-SEED_P) - (fp*(RP+0.02)-0.02));
-    float dw = min(wj, wp) * AMP_SCALE;
+    float dw = min(wj, wp) * ampScale + cw;   // same terra softening
     dw = max(sq.x, dw);
-    col = mix(col, ampGradient(p), S(dw) * rim);
+    // brand-gradient fill; in terra mode snow-covered high terrain with a
+    // thin rock rim, detail mottling toned down on the snow
+    vec3 fillCol = mix(ampGradient(p),
+                       mix(HIGH_BOT, HIGH_TOP, smoothstep(0., -SNOW_D, dw))
+                       * mix(1., dmod, SNOW_DETAIL),
+                       P.terra);
+    col = mix(col, fillCol, S(dw) * rim);
+
+    // emboss: terrain slopes facing the sun brighten, away-facing darken,
+    // strongest right at coasts and ridges. the SDF gradients come from
+    // screen derivatives (y flipped back to scene orientation)
+    if(P.terra > 0.001){
+        vec2 sxy = normalize(SUN.xy);
+        vec2 gc = vec2(dFdx(dAmp), -dFdy(dAmp));
+        vec2 gr_ = vec2(dFdx(dw),  -dFdy(dw));
+        float rel = dot(normalize(gc + 1e-5), sxy) * smoothstep(RELIEF_W, 0., abs(dAmp))
+                  + dot(normalize(gr_ + 1e-5), sxy) * smoothstep(RELIEF_W, 0., abs(dw));
+        col *= 1. + rel * RELIEF * P.terra * rim * cellW;
+    }
 
     // clouds, drawn before the shade so they get lit and shadowed too.
     // toy-planet height: the ground is darkened by the cloud shell sunward
@@ -538,10 +631,16 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     col = mix(col, vec3(0.), max(-dif, 0.) * P.dark * S(sq.x));
 
     // sun glint: blinn-phong specular on the fake sphere normal, over
-    // everything under the glass
+    // everything under the glass; in terra mode only the water reflects
     vec3 H = normalize(SUN + vec3(0., 0., 1.));
     col += mix(SUN_WHITE, SUN_COL, P.warm)
-         * pow(max(dot(N, H), 0.), SPEC_POW) * SPEC_GAIN * P.spec * rim;
+         * pow(max(dot(N, H), 0.), SPEC_POW) * SPEC_GAIN * P.spec * rim
+         * (1. - S(dAmp) * rim * P.terra);
+
+    // atmospheric haze: a constant veil over the whole disc, plus more
+    // toward the limb where the view ray crosses more air (N.z -> 0)
+    float haze = (ATMO_BASE + pow(1. - N.z, ATMO_POW) * ATMO_HAZE) * P.aur;
+    col = mix(col, HAZE_COL, haze * S(sq.x));
 
     // hard border ring on the rim, gated by P.ring. drawn on the
     // screen-space distance so every level gets the same thickness, and
@@ -670,6 +769,7 @@ vec3 keyIndicator(vec3 col, vec2 q){
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     sequenceModes();
+    gCoast = COASTF_AMT * P.terra;
 
     vec2 p = (fragCoord-0.5*iResolution.xy)/iResolution.y;
     vec2 q = p;
@@ -690,7 +790,9 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // noise coords, counter-scrolling slowly against the grid
     vec2 tp = vec2(p.x, p.y + iTime*SCROLL*BG_SPEED) * NOISE_SCALE;
 
-    fragColor = vec4(keyIndicator(render(p, tp), q), 1.0);
+    vec3 col = render(p, tp);
+    gCoast = 0.;   // the key indicator keeps clean brand glyphs
+    fragColor = vec4(keyIndicator(col, q), 1.0);
 }
 
 // --- Qt entry point ---

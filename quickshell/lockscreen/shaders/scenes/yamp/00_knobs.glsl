@@ -87,10 +87,44 @@ const float CLOUD_HEIGHT = 0.04; // shell height: shadow offset sunward (tile un
 const float CLOUD_SHADOW = 0.75; // ground darkening under the cloud shell
 const float CLOUD_FADE   = 0.1;  // cloud thinning band at the shell edge (tile units)
 
+// full-planet terrain (terra field): the tile interior becomes ocean, the
+// amps land, the filled amps high terrain; the sun then only reflects off
+// the water. the amp SDFs double as height fields: distance to the coast
+// drives shelves/beaches/snowlines, and its gradient drives the emboss
+const vec3 WATER_COL   = vec3(0.02, 0.09, 0.18); // deep ocean
+const vec3 WATER_SHALL = vec3(0.05, 0.22, 0.28); // shallow shelf at coasts
+const float COAST_W    = 0.06;  // shallow shelf width (amp units) — must
+                                // stay inside the SDF clamp (~0.07 usable)
+const vec3 SAND_COL    = vec3(0.55, 0.47, 0.26); // beach ring
+const float SAND_W     = 0.035; // beach ring width
+const vec3 LAND_COL    = vec3(0.10, 0.19, 0.11); // low terrain (amps), muted
+const vec3 HIGH_BOT    = vec3(0.45, 0.32, 0.18); // high terrain: rim rock...
+const vec3 HIGH_TOP    = vec3(0.95, 0.95, 0.90); // ...to snowfields
+const float SNOW_D     = 0.05;  // rock-to-snow rim width (amp units)
+const float SNOW_DETAIL = 0.35; // how much detail mottling shows on snow
+const float DETAIL_SCALE = 5.;  // terrain detail texture frequency
+const float DETAIL_AMT   = 0.6; // terrain detail brightness modulation
+const vec3  SPECK_COL  = vec3(0.30, 0.20, 0.10); // lowland dirt specks
+const float SPECK_SCALE = 3.7;  // speck texture frequency
+const float SPECK_WARP  = 1.5;  // speck spiral distortion
+const float SPECK_LO    = 0.25; // speck threshold window (squared sample)
+const float SPECK_HI    = 0.55;
+const float SPECK_AMT   = 0.8;  // speck opacity on the lowland
+const float CORNER_ROUND = 0.02; // round off sharp glyph corners (amp units)
+const float COASTF_AMT   = 0.05; // baked coastline fbm amplitude (amp units)
+const float AMP_PAD      = 0.25; // shrink amps within their cells so the
+                                 // coast bands fit before the cell boundary
+const float RELIEF     = 0.4;   // emboss strength at coasts/ridges (negative flips)
+const float RELIEF_W   = 0.05;  // emboss band width (amp units), zero beyond
+
 const vec3  AUR_COLOR   = vec3(0.15, 0.5, 1.0);  // atmosphere glow color
 const vec3  AUR_SUNSET  = vec3(1.9, 0.5, 0.08);  // sun-facing rim color
 const float AUR_SUN_POW = 1.;    // sunset concentration on the sun side
 const float AUR_GLOW    = 0.25;  // additive horizon glow strength
+const vec3  HAZE_COL    = vec3(0.45, 0.60, 0.85); // haze tint, desaturated
+const float ATMO_BASE   = 0.12;  // constant atmosphere veil over the disc
+const float ATMO_HAZE   = 0.45;  // limb haze: extra tint at the rim
+const float ATMO_POW    = 2.;    // haze concentration toward the limb
 
 // key indicator: on keypress a black circle fills the screen while a blue
 // amp zooms in; each key bumps the amp, errors turn it red, inactivity
@@ -119,6 +153,8 @@ struct ModeParams {
     float cloud;    // cloud coverage
     float aur;      // aurora: atmosphere tint + glow on the event horizon
     float warm;     // sun glint tint: 0 = SUN_WHITE, 1 = SUN_COL
+    float terra;    // terrain palette: ocean interior, land amps,
+                    // high-terrain fills, water-only glint
 };
 
 // each step grows the pad and zooms in (wham) — visual complexity goes up,
@@ -126,21 +162,21 @@ struct ModeParams {
 // so cells of different levels stay continuous
 const int MODE_COUNT = 3;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra
     // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.),
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.),
     // 3d mono: starfield, white horizon (the old aurora), white sun
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.),
-    // 3d full: colored aurora, warm sun, clouds
-    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.)
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.),
+    // 3d full: colored aurora, warm sun, clouds, ocean + terrain
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](0., 0., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
 // DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
 const float DEV_MODE_OFFSET = 0.;
-const float DEV_MODE_DUR    = 4.;
+const float DEV_MODE_DUR    = 0.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;

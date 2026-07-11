@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Bakes the and& ampersand SDFs into yamp_sdf.png (R = J piece, G = P piece).
+# Bakes the and& ampersand SDFs into yamp_sdf.png (R = J piece, G = P piece,
+# B = glyph-space coastline fbm for terra mode — summed onto the distances
+# in-shader so the wobble is constant in the glyph frame).
 # Numpy port of the exact bezier SDF that used to live in shader.glsl
 # (iq's quadratic bezier distance + even-odd winding).
 #
@@ -89,12 +91,26 @@ def encode(d):
     return np.round((np.clip(d, -RANGE / 2, RANGE / 2) / RANGE + 0.5) * 255).astype(np.uint8)
 
 
+def fbm(seed, beta=1.6):
+    rng = np.random.default_rng(seed)
+    spec = np.fft.fft2(rng.standard_normal((N, N)))
+    fx = np.fft.fftfreq(N)[None, :]
+    fy = np.fft.fftfreq(N)[:, None]
+    f = np.sqrt(fx * fx + fy * fy)
+    f[0, 0] = 1.0
+    img = np.real(np.fft.ifft2(spec / f**beta))
+    img -= img.min()
+    img /= img.max()
+    return img
+
+
 dj = sd_shape(0, NJ)
 dp = sd_shape(NJ, NSEG)
 
 out = np.zeros((N, N, 3), np.uint8)
 out[..., 0] = encode(dj)
 out[..., 1] = encode(dp)
+out[..., 2] = np.round(fbm(7) * 255).astype(np.uint8)
 Image.fromarray(out).save("../../assets/yamp_sdf.png", optimize=True)
 
 dbg = np.where(dj < 0, 255, np.where(dp < 0, 160, 20)).astype(np.uint8)
