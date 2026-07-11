@@ -147,8 +147,20 @@ const float NOISE_HI    = 0.05;
 const float NOISE_SCALE = 3.0;   // background noise texture frequency
 const float BG_SPEED    = 0.3;   // background scroll, fraction of SCROLL
 const float STAR_BRIGHT = 0.7;   // starfield brightness
+const float STAR_CELL   = 6.;    // star spacing in screen pixels (sheet 1)
+const float STAR_R      = 0.9;   // star radius, screen pixels
+const float STAR_POW    = 17.;   // brightness distribution (lower = denser)
+const float STAR_DRIFT  = 0.01;  // second-sheet drift for depth parallax
 
-const float PILE_BAND = 0.14;    // event-horizon falloff width (tile units)
+// baked kaliset nebula (gen_nebula.py): the texture holds the two raw
+// field layers, colored live below
+const float NEB_SCALE   = 0.25;  // nebula frequency vs the background coords
+const vec3  NEB1_COL    = vec3(0.20, 0.35, 0.80); // layer 1: blue wash
+const float NEB1_BRIGHT = 0.9;
+const vec3  NEB2_COL    = vec3(1.50, 0.50, 0.40); // layer 2: orange filaments
+const float NEB2_BRIGHT = 1.8;
+
+const float PILE_BAND = 0.001;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
 
@@ -259,6 +271,8 @@ struct ModeParams {
     float warm;     // sun glint tint: 0 = SUN_WHITE, 1 = SUN_COL
     float terra;    // terrain palette: ocean interior, land amps,
                     // high-terrain fills, water-only glint
+    float neb;      // kaliset nebula visibility in the background
+    float star;     // starfield density (scales the brightness power law)
 };
 
 // each step grows the pad and zooms in (wham) — visual complexity goes up,
@@ -266,21 +280,21 @@ struct ModeParams {
 // so cells of different levels stay continuous
 const int MODE_COUNT = 3;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra neb  star
     // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.),
-    // 3d mono: starfield, white horizon (the old aurora), white sun
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.),
-    // 3d full: colored aurora, warm sun, clouds, ocean + terrain
-    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.)
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.),
+    // 3d mono: sparse starfield, white horizon (the old aurora), white sun
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.,   0.,  0.25),
+    // 3d full: colored aurora, warm sun, clouds, ocean + terrain, nebula
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.,   1.,  3.)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](0., 0., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
 // DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
 const float DEV_MODE_OFFSET = 0.;
-const float DEV_MODE_DUR    = 0.;
+const float DEV_MODE_DUR    = 4.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -290,6 +304,9 @@ const float ON_START     = FILLP_START + T_FILL;
 const float UNFILL_START = ON_START + T_ON;
 const float LOOP_LEN     = UNFILL_START + T_UNFILL + T_REST;
 // --- generic helpers ---------------------------------------------------------
+float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
+                    // screen->tile-local distance scale
+
 #define Rot(a) mat2(cos(a),-sin(a),sin(a),cos(a))
 #define S(d) (1.-smoothstep(-1.3,1.3, (d)*iResolution.y ))
 
@@ -338,18 +355,29 @@ vec2 spiral(vec2 uv, float amt){
     return uv + vec2(d.y, -d.x) * blend * amt;
 }
 
-// two-layer sparse starfield, points jittered within their grid cell
-float stars(vec2 p){
-    float v = 0.;
-    for(int i = 0; i < 2; i++){
-        vec2 g = p * (6. + 5.*float(i)) + float(i)*3.7;
-        vec2 id = floor(g);
-        vec2 f = fract(g) - 0.5;
-        float rn = random(id);
-        vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5)*0.7;
-        v += smoothstep(0.06, 0., length(f - off)) * step(0.9, rn) * fract(rn*91.17);
-    }
-    return v;
+// star sheets (after the galaxy shader's starLayer): one jittered star per
+// STAR_CELL-pixel cell, power-law brightness — thousands dim, a few
+// bright — round and antialiased (sizes in actual screen pixels). ids wrap
+// to keep the hash healthy after hours of background scroll
+float starSheet(vec2 g, float cellPx, float dens){
+    vec2 id = mod(floor(g), 1024.);
+    vec2 f = fract(g) - 0.5;
+    vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5) * 0.7;
+    float dpx = length(f - off) * cellPx;
+    return smoothstep(STAR_R + 0.7, STAR_R - 0.7, dpx)
+         * pow(random(id), STAR_POW / max(dens, 1e-3));
+}
+
+// two sheets: the second is finer, dimmer, and drifts slowly against the
+// background scroll for depth parallax. the lattice is fixed in background
+// coords so stars ride the same scroll as the noise/nebula through zoom
+// and pad transitions; only the pixel radius compensates for zoom so the
+// dots stay STAR_R px round
+float stars(vec2 p, float dens){
+    float f = iResolution.y / (NOISE_SCALE * STAR_CELL);
+    return starSheet(p * f, STAR_CELL / gZoom, dens)
+         + starSheet(p * f * 1.7 + vec2(3.7, iTime * STAR_DRIFT),
+                     STAR_CELL / (1.7 * gZoom), dens) * 0.8;
 }
 // --- mode sequencer ------------------------------------------------------------
 // The ModeParams struct and the MODES playlist live in 00_knobs. The
@@ -373,7 +401,8 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
         mix(a.ring, b.ring, t), mix(a.distort, b.distort, t),
         mix(a.wham, b.wham, t), mix(a.spec, b.spec, t),
         mix(a.cloud, b.cloud, t), mix(a.aur, b.aur, t),
-        mix(a.warm, b.warm, t), mix(a.terra, b.terra, t));
+        mix(a.warm, b.warm, t), mix(a.terra, b.terra, t),
+        mix(a.neb, b.neb, t), mix(a.star, b.star, t));
 }
 
 void sequenceModes(){
@@ -408,8 +437,6 @@ void sequenceModes(){
 // 20_modes.glsl for the mode system. All mode-dependent values come from
 // the global P; nothing here asks which mode is active.
 
-float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
-                    // screen->tile-local distance scale
 vec3  SUN = vec3(0., 0.7, 0.7);   // sun direction, set in mainImage —
                                   // drives the glint and the aurora
 float gCoast = 0.;  // coastline fbm amplitude for sdJ/sdP; set in
@@ -522,7 +549,16 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     pull *= pull * smoothstep(P.pad, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
-    float base = mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT;
+    vec3 base = vec3(mix(NOISE_LO, NOISE_HI, nse)) + stars(tps, P.star) * STAR_BRIGHT;
+    // baked kaliset nebula (iChannel3, raw fields in rg), riding the same
+    // background coords so it scrolls and gets pulled into the horizon
+    // like the stars. squared -> dark space stays dark, hues stay stable
+    if(P.neb > 0.001){
+        vec2 nf = texture(iChannel3, tps * NEB_SCALE).rg * 2.;
+        nf *= nf;
+        base += (NEB1_COL * nf.x * NEB1_BRIGHT
+               + NEB2_COL * nf.y * NEB2_BRIGHT) * P.neb;
+    }
 
     // aurora: the horizon pile-up takes the atmosphere tint, plus a soft
     // additive glow. the sunset warming only appears when the sun is

@@ -43,8 +43,20 @@ const float NOISE_HI    = 0.05;
 const float NOISE_SCALE = 3.0;   // background noise texture frequency
 const float BG_SPEED    = 0.3;   // background scroll, fraction of SCROLL
 const float STAR_BRIGHT = 0.7;   // starfield brightness
+const float STAR_CELL   = 6.;    // star spacing in screen pixels (sheet 1)
+const float STAR_R      = 0.9;   // star radius, screen pixels
+const float STAR_POW    = 17.;   // brightness distribution (lower = denser)
+const float STAR_DRIFT  = 0.01;  // second-sheet drift for depth parallax
 
-const float PILE_BAND = 0.14;    // event-horizon falloff width (tile units)
+// baked kaliset nebula (gen_nebula.py): the texture holds the two raw
+// field layers, colored live below
+const float NEB_SCALE   = 0.25;  // nebula frequency vs the background coords
+const vec3  NEB1_COL    = vec3(0.20, 0.35, 0.80); // layer 1: blue wash
+const float NEB1_BRIGHT = 0.9;
+const vec3  NEB2_COL    = vec3(1.50, 0.50, 0.40); // layer 2: orange filaments
+const float NEB2_BRIGHT = 1.8;
+
+const float PILE_BAND = 0.001;    // event-horizon falloff width (tile units)
 const float PILE_PULL = 0.35;    // how far the noise is sucked inward (uv units)
 const float PILE_GAIN = 7.;      // brightness pile-up at the horizon
 
@@ -155,6 +167,8 @@ struct ModeParams {
     float warm;     // sun glint tint: 0 = SUN_WHITE, 1 = SUN_COL
     float terra;    // terrain palette: ocean interior, land amps,
                     // high-terrain fills, water-only glint
+    float neb;      // kaliset nebula visibility in the background
+    float star;     // starfield density (scales the brightness power law)
 };
 
 // each step grows the pad and zooms in (wham) — visual complexity goes up,
@@ -162,21 +176,21 @@ struct ModeParams {
 // so cells of different levels stay continuous
 const int MODE_COUNT = 3;
 const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
-    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra
+    //         pad   bg  light dark  ring distort wham   spec cloud aur  warm terra neb  star
     // 2d: flat — border ring, no noise/stars/shade/distortion
-    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.),
-    // 3d mono: starfield, white horizon (the old aurora), white sun
-    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.),
-    // 3d full: colored aurora, warm sun, clouds, ocean + terrain
-    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.)
+    ModeParams(0.01, 0., 0.,   0.,   1.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.),
+    // 3d mono: sparse starfield, white horizon (the old aurora), white sun
+    ModeParams(0.25, 1., 0.25, 0.75, 0.,  0.12,   -0.3,  0.6, 0.,   0.,  0.,  0.,   0.,  0.25),
+    // 3d full: colored aurora, warm sun, clouds, ocean + terrain, nebula
+    ModeParams(0.45, 1., 0.25, 0.75, 0.,  0.12,   -0.65, 0.6, 1.,   1.,  1.,  1.,   1.,  3.)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](0., 0., 480.);
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480.);
 
 // dev knobs: skip ahead in the schedule (seconds) / override every mode's
 // duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
 // DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
 const float DEV_MODE_OFFSET = 0.;
-const float DEV_MODE_DUR    = 0.;
+const float DEV_MODE_DUR    = 4.;
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;

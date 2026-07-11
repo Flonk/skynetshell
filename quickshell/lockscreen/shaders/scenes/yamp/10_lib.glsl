@@ -1,4 +1,7 @@
 // --- generic helpers ---------------------------------------------------------
+float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
+                    // screen->tile-local distance scale
+
 #define Rot(a) mat2(cos(a),-sin(a),sin(a),cos(a))
 #define S(d) (1.-smoothstep(-1.3,1.3, (d)*iResolution.y ))
 
@@ -47,16 +50,27 @@ vec2 spiral(vec2 uv, float amt){
     return uv + vec2(d.y, -d.x) * blend * amt;
 }
 
-// two-layer sparse starfield, points jittered within their grid cell
-float stars(vec2 p){
-    float v = 0.;
-    for(int i = 0; i < 2; i++){
-        vec2 g = p * (6. + 5.*float(i)) + float(i)*3.7;
-        vec2 id = floor(g);
-        vec2 f = fract(g) - 0.5;
-        float rn = random(id);
-        vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5)*0.7;
-        v += smoothstep(0.06, 0., length(f - off)) * step(0.9, rn) * fract(rn*91.17);
-    }
-    return v;
+// star sheets (after the galaxy shader's starLayer): one jittered star per
+// STAR_CELL-pixel cell, power-law brightness — thousands dim, a few
+// bright — round and antialiased (sizes in actual screen pixels). ids wrap
+// to keep the hash healthy after hours of background scroll
+float starSheet(vec2 g, float cellPx, float dens){
+    vec2 id = mod(floor(g), 1024.);
+    vec2 f = fract(g) - 0.5;
+    vec2 off = (vec2(random(id + 4.2), random(id + 8.4)) - 0.5) * 0.7;
+    float dpx = length(f - off) * cellPx;
+    return smoothstep(STAR_R + 0.7, STAR_R - 0.7, dpx)
+         * pow(random(id), STAR_POW / max(dens, 1e-3));
+}
+
+// two sheets: the second is finer, dimmer, and drifts slowly against the
+// background scroll for depth parallax. the lattice is fixed in background
+// coords so stars ride the same scroll as the noise/nebula through zoom
+// and pad transitions; only the pixel radius compensates for zoom so the
+// dots stay STAR_R px round
+float stars(vec2 p, float dens){
+    float f = iResolution.y / (NOISE_SCALE * STAR_CELL);
+    return starSheet(p * f, STAR_CELL / gZoom, dens)
+         + starSheet(p * f * 1.7 + vec2(3.7, iTime * STAR_DRIFT),
+                     STAR_CELL / (1.7 * gZoom), dens) * 0.8;
 }

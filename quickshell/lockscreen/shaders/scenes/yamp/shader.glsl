@@ -2,8 +2,6 @@
 // 20_modes.glsl for the mode system. All mode-dependent values come from
 // the global P; nothing here asks which mode is active.
 
-float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
-                    // screen->tile-local distance scale
 vec3  SUN = vec3(0., 0.7, 0.7);   // sun direction, set in mainImage —
                                   // drives the glint and the aurora
 float gCoast = 0.;  // coastline fbm amplitude for sdJ/sdP; set in
@@ -116,7 +114,16 @@ vec3 drawAmp(vec2 p, float n, vec3 sq, float depth, float tileDepth, vec2 tp, ve
     pull *= pull * smoothstep(P.pad, 0., sq.x);
     vec2 tps = tp + sq.yz * pull * PILE_PULL;
     float nse = texture(iChannel1, fract(tps)).r;
-    float base = mix(NOISE_LO, NOISE_HI, nse) + stars(tps) * STAR_BRIGHT;
+    vec3 base = vec3(mix(NOISE_LO, NOISE_HI, nse)) + stars(tps, P.star) * STAR_BRIGHT;
+    // baked kaliset nebula (iChannel3, raw fields in rg), riding the same
+    // background coords so it scrolls and gets pulled into the horizon
+    // like the stars. squared -> dark space stays dark, hues stay stable
+    if(P.neb > 0.001){
+        vec2 nf = texture(iChannel3, tps * NEB_SCALE).rg * 2.;
+        nf *= nf;
+        base += (NEB1_COL * nf.x * NEB1_BRIGHT
+               + NEB2_COL * nf.y * NEB2_BRIGHT) * P.neb;
+    }
 
     // aurora: the horizon pile-up takes the atmosphere tint, plus a soft
     // additive glow. the sunset warming only appears when the sun is

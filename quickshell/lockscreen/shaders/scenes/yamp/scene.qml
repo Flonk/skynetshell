@@ -16,6 +16,11 @@ Item {
         id: cloudSrc; sourceItem: cloudTex; hideSource: true
         wrapMode: ShaderEffectSource.Repeat
     }
+    Image { id: nebTex; source: "../assets/nebula.png"; visible: false }
+    ShaderEffectSource {
+        id: nebSrc; sourceItem: nebTex; hideSource: true
+        wrapMode: ShaderEffectSource.Repeat
+    }
 
     LockShaderPass {
         anchors.fill: parent
@@ -24,5 +29,6 @@ Item {
         iChannel0: texSrc
         iChannel1: noiseSrc
         iChannel2: cloudSrc
+        iChannel3: nebSrc
     }
 }
