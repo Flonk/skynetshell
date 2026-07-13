@@ -310,13 +310,7 @@ const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
     // warhol: flat pop-color squares, normal/inverted per tile, more bigs
     ModeParams(0.,   0., 0.,   0.,   0.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   1.,  1.,  0.85)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480., 480., 480.);
-
-// dev knobs: skip ahead in the schedule (seconds) / override every mode's
-// duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
-// DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
-const float DEV_MODE_OFFSET = 1920.;
-const float DEV_MODE_DUR    = 0.;
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](4., 4., 4., 4., 4.);
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
@@ -414,8 +408,6 @@ int   modeTo    = 0;
 float modeBlend = 1.;  // eased from->to progress, 1 once settled
 float modeTime  = 0.;  // seconds into the current playlist block
 
-float modeDur(int i){ return DEV_MODE_DUR > 0. ? DEV_MODE_DUR : MODE_DUR[i]; }
-
 ModeParams mixParams(ModeParams a, ModeParams b, float t){
     return ModeParams(
         mix(a.pad, b.pad, t), mix(a.bg, b.bg, t),
@@ -430,13 +422,13 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
 }
 
 void sequenceModes(){
-    float t = iTime + DEV_MODE_OFFSET;
+    float t = iTime;
     float total = 0.;
-    for(int i = 0; i < MODE_COUNT; i++) total += modeDur(i);
+    for(int i = 0; i < MODE_COUNT; i++) total += MODE_DUR[i];
     float c = mod(t, total);
     float acc = 0.;
     for(int i = 0; i < MODE_COUNT; i++){
-        float d = modeDur(i);
+        float d = MODE_DUR[i];
         if(c < acc + d){
             modeTo    = i;
             modeFrom  = (i + MODE_COUNT - 1) % MODE_COUNT;
@@ -446,13 +438,13 @@ void sequenceModes(){
         }
         acc += d;
     }
-    if(t < modeDur(0)) modeFrom = modeTo;   // very first block: no flip-in
+    if(t < MODE_DUR[0]) modeFrom = modeTo;   // very first block: no flip-in
     P = mixParams(MODES[modeFrom], MODES[modeTo], modeBlend);
 
     // clouds don't blend through transitions — the pad/zoom retune makes
     // them slide. instead they fade in for TRANS_DUR after the transition
     // lands, and fade out over the last TRANS_DUR before the next one
-    float d = modeDur(modeTo);
+    float d = MODE_DUR[modeTo];
     P.cloud = MODES[modeTo].cloud
             * smoothstep(TRANS_DUR, 2.*TRANS_DUR, modeTime)
             * (1. - smoothstep(d - TRANS_DUR, d, modeTime));

@@ -206,13 +206,9 @@ const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
     // warhol: flat pop-color squares, normal/inverted per tile, more bigs
     ModeParams(0.,   0., 0.,   0.,   0.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   1.,  1.,  0.85)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](480., 480., 480., 480., 480.);
 
-// dev knobs: skip ahead in the schedule (seconds) / override every mode's
-// duration. e.g. DEV_MODE_DUR = 20. cycles the whole playlist quickly, and
-// DEV_MODE_OFFSET = 20.*float(k) then starts right at mode k. 0 = off
-const float DEV_MODE_OFFSET = 1920.;
-const float DEV_MODE_DUR    = 0.;
+const float D = 480.;
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](D, D, D, D, D);
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
