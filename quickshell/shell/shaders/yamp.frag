@@ -310,7 +310,9 @@ const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
     // warhol: flat pop-color squares, normal/inverted per tile, more bigs
     ModeParams(0.,   0., 0.,   0.,   0.,  0.,     0.,    0.,  0.,   0.,  0.,  0.,   0.,  0.,   1.,  1.,  0.85)
 );
-const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](4., 4., 4., 4., 4.);
+
+const float D = 480.;
+const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](D, D, D, D, D);
 
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
