@@ -470,6 +470,39 @@ Item {
       }
     }
 
+    // LANGUAGE
+    Section {
+      id: langSection
+      visible: !bar.lockscreen && LanguageWidget.available
+      width: langText.implicitWidth + 24
+      topPadding: 0; bottomPadding: 0
+      backgroundColor: langMouse.containsMouse ? "#7493a3" : Theme.app150
+      showTopBorder: false
+      glassEffect: false
+      clip: true
+
+      Item {
+        width: parent.width; height: 20
+
+        Text {
+          id: langText
+          anchors.centerIn: parent; anchors.verticalCenterOffset: bar.textVerticalOffset
+          text: LanguageWidget.label
+          font.family: Theme.fontFamily; font.pointSize: Theme.fontSizeSmall; font.weight: Font.Bold
+          color: langMouse.containsMouse ? Theme.app100 : bar.textColor
+        }
+
+        MouseArea {
+          id: langMouse
+          enabled: bar.interactive
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: LanguageWidget.cycle()
+        }
+      }
+    }
+
     // HOW2SKYNET
     Section {
       id: h2sSection
