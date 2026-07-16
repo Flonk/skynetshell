@@ -5,8 +5,12 @@ float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
 #define Rot(a) mat2(cos(a),-sin(a),sin(a),cos(a))
 #define S(d) (1.-smoothstep(-1.3,1.3, (d)*iResolution.y ))
 
+vec2 gSeed = vec2(0.);   // session hash offset (sk_seed), set in mainImage —
+                         // reshuffles every random() draw, so the quadtree
+                         // pattern differs each session
+
 float random (vec2 p) {
-    return fract(sin(dot(p.xy, vec2(12.9898,78.233)))* 43758.5453123);
+    return fract(sin(dot(p.xy + gSeed, vec2(12.9898,78.233)))* 43758.5453123);
 }
 
 float cubicInOut(float t) {

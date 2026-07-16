@@ -210,6 +210,12 @@ const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
 const float D = 480.;
 const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](D, D, D, D, D);
 
+// two super-modes, each opening on the circles base block: the planets arc
+// is blocks 0-2 (circles -> 3d balls -> planets), the warhol arc blocks 3-4
+// (circles -> squares); sk_seed(2) decides which arc a session opens on
+const int   WARHOL_START = 3;    // playlist index of the warhol arc's circles block
+const float WARHOL_FIRST = 0.5;  // chance a session opens on the warhol arc
+
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
 const float FILLJ_START  = ROT_START + T_ROTATE + T_OFF2;

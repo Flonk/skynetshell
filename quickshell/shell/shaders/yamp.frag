@@ -26,6 +26,11 @@ layout(std140, binding = 0) uniform buf {
 
     vec4 iMouse;
     vec4 iClock;
+
+    // 32 random floats in [0,1), rerolled by the host each time the shader
+    // pass is created — read them via sk_seed(i) to vary scenes per session
+    mat4 iSeed0;
+    mat4 iSeed1;
 };
 
 // Up to four input textures, resolved from QML properties.
@@ -44,6 +49,12 @@ const vec3 sk_fail_color = vec3(227.0 / 255.0, 85.0 / 255.0, 50.0 / 255.0);
 // ---------------------------------------------------------------------------
 // sk_ — skynetlock standard library
 // ---------------------------------------------------------------------------
+
+/// Random float in [0,1) for i in 0..31, fixed for the session.
+float sk_seed(int i) {
+    mat4 m = i < 16 ? iSeed0 : iSeed1;
+    return m[(i >> 2) & 3][i & 3];
+}
 
 float sk_ease_out_back(float t) {
     const float c1 = 4.0;
@@ -314,6 +325,12 @@ const ModeParams MODES[MODE_COUNT] = ModeParams[MODE_COUNT](
 const float D = 480.;
 const float MODE_DUR[MODE_COUNT] = float[MODE_COUNT](D, D, D, D, D);
 
+// two super-modes, each opening on the circles base block: the planets arc
+// is blocks 0-2 (circles -> 3d balls -> planets), the warhol arc blocks 3-4
+// (circles -> squares); sk_seed(2) decides which arc a session opens on
+const int   WARHOL_START = 3;    // playlist index of the warhol arc's circles block
+const float WARHOL_FIRST = 0.5;  // chance a session opens on the warhol arc
+
 // derived state boundaries — don't touch, tune the knobs above
 const float ROT_START    = T_OFF1;
 const float FILLJ_START  = ROT_START + T_ROTATE + T_OFF2;
@@ -328,8 +345,12 @@ float gZoom = 1.;   // global zoom factor, set in mainImage — part of the
 #define Rot(a) mat2(cos(a),-sin(a),sin(a),cos(a))
 #define S(d) (1.-smoothstep(-1.3,1.3, (d)*iResolution.y ))
 
+vec2 gSeed = vec2(0.);   // session hash offset (sk_seed), set in mainImage —
+                         // reshuffles every random() draw, so the quadtree
+                         // pattern differs each session
+
 float random (vec2 p) {
-    return fract(sin(dot(p.xy, vec2(12.9898,78.233)))* 43758.5453123);
+    return fract(sin(dot(p.xy + gSeed, vec2(12.9898,78.233)))* 43758.5453123);
 }
 
 float cubicInOut(float t) {
@@ -424,7 +445,12 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
 }
 
 void sequenceModes(){
-    float t = iTime;
+    // super-mode order: sk_seed(2) may open the session on the warhol arc
+    // by skipping the clock past the planets arc, onto its circles block
+    float skip = 0.;
+    if(sk_seed(2) < WARHOL_FIRST)
+        for(int i = 0; i < WARHOL_START; i++) skip += MODE_DUR[i];
+    float t = iTime + skip;
     float total = 0.;
     for(int i = 0; i < MODE_COUNT; i++) total += MODE_DUR[i];
     float c = mod(t, total);
@@ -440,7 +466,9 @@ void sequenceModes(){
         }
         acc += d;
     }
-    if(t < MODE_DUR[0]) modeFrom = modeTo;   // very first block: no flip-in
+    // very first block (already active at iTime 0, wherever the skip landed
+    // it): no flip-in from the notional previous mode
+    if(iTime <= modeTime + 0.001) modeFrom = modeTo;
     P = mixParams(MODES[modeFrom], MODES[modeTo], modeBlend);
 
     // clouds don't blend through transitions — the pad/zoom retune makes
@@ -861,6 +889,7 @@ vec3 keyIndicator(vec3 col, vec2 q){
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
+    gSeed = 100. * vec2(sk_seed(0), sk_seed(1));
     sequenceModes();
     gCoast = COASTF_AMT * P.terra;
 

@@ -24,6 +24,12 @@ uniform vec4 iMouse;
 /// e.g. 09:45 → (0.0, 9.0, 4.0, 5.0)
 uniform vec4 iClock;
 
+/// 32 random floats in [0,1), rerolled by the host each time the shader
+/// pass is created. Read them via sk_seed(i), i in 0..31, to vary a scene
+/// per session (reseed hashes, pick a starting mode, ...).
+uniform mat4 iSeed0;
+uniform mat4 iSeed1;
+
 // Up to four named input textures, resolved from the shader bundle's channel list.
 // Unbound slots fall back to a 1×1 dark fallback texture.
 uniform sampler2D iChannel0;
@@ -95,6 +101,14 @@ out vec4 fragColor;
 // always start from zero and need no continuity base.
 
 // ---------------------------------------------------------------------------
+
+// ---- Session seeds ----------------------------------------------------------
+
+/// Random float in [0,1) for i in 0..31, fixed for the session.
+float sk_seed(int i) {
+  mat4 m = i < 16 ? iSeed0 : iSeed1;
+  return m[(i >> 2) & 3][i & 3];
+}
 
 // ---- Easing ---------------------------------------------------------------
 

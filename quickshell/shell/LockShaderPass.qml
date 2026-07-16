@@ -46,6 +46,16 @@ ShaderEffect {
                            Math.floor(m / 10), m % 10);
     }
 
+    // 32 random floats, rolled once when the pass is created — shaders read
+    // them via sk_seed(i) to vary per session
+    readonly property matrix4x4 iSeed0: _randMat()
+    readonly property matrix4x4 iSeed1: _randMat()
+    function _randMat() {
+        let v = [];
+        for (let i = 0; i < 16; i++) v.push(Math.random());
+        return Qt.matrix4x4(...v);
+    }
+
     property var iChannel0: dummyTexture
     property var iChannel1: dummyTexture
     property var iChannel2: dummyTexture

@@ -26,6 +26,11 @@ layout(std140, binding = 0) uniform buf {
 
     vec4 iMouse;
     vec4 iClock;
+
+    // 32 random floats in [0,1), rerolled by the host each time the shader
+    // pass is created — read them via sk_seed(i) to vary scenes per session
+    mat4 iSeed0;
+    mat4 iSeed1;
 };
 
 // Up to four input textures, resolved from QML properties.
@@ -44,6 +49,12 @@ const vec3 sk_fail_color = vec3(227.0 / 255.0, 85.0 / 255.0, 50.0 / 255.0);
 // ---------------------------------------------------------------------------
 // sk_ — skynetlock standard library
 // ---------------------------------------------------------------------------
+
+/// Random float in [0,1) for i in 0..31, fixed for the session.
+float sk_seed(int i) {
+    mat4 m = i < 16 ? iSeed0 : iSeed1;
+    return m[(i >> 2) & 3][i & 3];
+}
 
 float sk_ease_out_back(float t) {
     const float c1 = 4.0;

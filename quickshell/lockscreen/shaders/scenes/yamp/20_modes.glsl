@@ -25,7 +25,12 @@ ModeParams mixParams(ModeParams a, ModeParams b, float t){
 }
 
 void sequenceModes(){
-    float t = iTime;
+    // super-mode order: sk_seed(2) may open the session on the warhol arc
+    // by skipping the clock past the planets arc, onto its circles block
+    float skip = 0.;
+    if(sk_seed(2) < WARHOL_FIRST)
+        for(int i = 0; i < WARHOL_START; i++) skip += MODE_DUR[i];
+    float t = iTime + skip;
     float total = 0.;
     for(int i = 0; i < MODE_COUNT; i++) total += MODE_DUR[i];
     float c = mod(t, total);
@@ -41,7 +46,9 @@ void sequenceModes(){
         }
         acc += d;
     }
-    if(t < MODE_DUR[0]) modeFrom = modeTo;   // very first block: no flip-in
+    // very first block (already active at iTime 0, wherever the skip landed
+    // it): no flip-in from the notional previous mode
+    if(iTime <= modeTime + 0.001) modeFrom = modeTo;
     P = mixParams(MODES[modeFrom], MODES[modeTo], modeBlend);
 
     // clouds don't blend through transitions — the pad/zoom retune makes
